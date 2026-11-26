@@ -34,10 +34,11 @@ async def main():
         # Let the plan run until the first shot has a keyframe and we are well past it, then seek back into it.
         await until("__trance.keyframes.some(k => k.startsWith('0:')) && __trance.mapT > 8", 45000)
         print(f"  info keyframes: {await page.evaluate('__trance.keyframes.slice(0, 4)')}")
-        await page.evaluate("(() => { const s = document.getElementById('seek'); s.value = 3; s.dispatchEvent(new Event('input')) })()")
-        await until("document.getElementById('vmtag').textContent.includes('rewound')", 5000)
+        # Clear the tag first: a beat-repeat stutter also says "rewound", and must not be mistaken for the seek.
+        await page.evaluate("(() => { document.getElementById('vmtag').textContent = ''; const s = document.getElementById('seek'); s.value = 3; s.dispatchEvent(new Event('input')) })()")
+        await until("document.getElementById('vmtag').textContent.includes('rewound to')", 8000)
         tag = await page.evaluate("document.getElementById('vmtag').textContent")
-        check("rewound" in tag, f"seeking back shows the rewind ({tag!r})")
+        check("rewound to" in tag, f"seeking back shows the rewind ({tag!r})")
         check("snapshot" in tag, "the scene was restored from a VM snapshot")
         await page.click("#play"); await page.wait_for_timeout(300)
         before = await page.evaluate("__trance.mapT")
