@@ -19,7 +19,8 @@ It fails a scene that:
 - is missing its `// name:` first line;
 - throws, ends, or runs a loop without `await frame(...)` (it times out);
 - produces a non-finite coordinate, size, hue or `fx` value, an unknown shape kind, or an unknown text effect;
-- averages over 5 ms of VM time per frame, or exceeds 1500 shapes or 20000 path coordinates in a frame;
+- averages over 5 ms of VM time per frame (set `VM_BUDGET_MS` to change it; CI uses 8 because shared runners
+  are slower), or exceeds 1500 shapes or 20000 path coordinates in a frame;
 - reports phases but ignores a cue for more than 6 frames, or reports a phase without `fx.title`.
 
 The report also lists `phasesSeen`, `cueLagFrames` and the 95th-percentile VM time, which are worth watching even

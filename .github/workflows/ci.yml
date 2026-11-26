@@ -15,6 +15,9 @@ jobs:
       - name: Build
         run: bun tools/build.mjs --offline
       - name: Check every scene
+        # Shared runners are roughly 1.5x slower than a desktop; the 5 ms desktop budget becomes 8 ms here.
+        env:
+          VM_BUDGET_MS: "8"
         run: bun tools/check-all.mjs
       - name: Evaluate the song mapper
         run: bun tools/eval-mapper.mjs

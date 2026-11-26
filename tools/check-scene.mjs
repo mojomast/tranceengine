@@ -7,6 +7,8 @@ import { existsSync } from "node:fs"
 const ROOT = join(dirname(new URL(import.meta.url).pathname), "..")
 const BUNDLE = join(ROOT, "dist/engine.bundle.js")
 if (!existsSync(BUNDLE)) { console.error("dist/engine.bundle.js is missing: run `bun tools/build.mjs` first"); process.exit(2) }
+// VM time budget per frame, for a typical desktop. Shared CI runners are slower, so CI raises it (VM_BUDGET_MS).
+const BUDGET_MS = +(process.env.VM_BUDGET_MS || 5)
 const file = process.argv[2]
 if (!file) { console.log("usage: bun check-scene.mjs <scene.js>"); process.exit(2) }
 const code = await Bun.file(file).text()
@@ -109,7 +111,7 @@ for (const [label, r] of [["desktop", desk], ["phone", phone]]) {
   if (!r) continue
   if (r.error) { fails.push(label + ": " + r.error); continue }
   if (r.problems.length) fails.push(label + ": " + r.problems.join("; "))
-  if (r.avgVm > 5) fails.push(label + ": too slow, avg " + r.avgVm.toFixed(2) + " ms per frame in the VM (budget 5 ms)")
+  if (r.avgVm > BUDGET_MS) fails.push(label + ": too slow, avg " + r.avgVm.toFixed(2) + " ms per frame in the VM (budget " + BUDGET_MS + " ms)")
   if (r.maxShapes > 1500) fails.push(label + ": " + r.maxShapes + " shapes in one frame (budget 1500)")
   if (r.maxPoints > 20000) fails.push(label + ": " + r.maxPoints + " path coordinates in one frame (budget 20000)")
 }
