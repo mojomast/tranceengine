@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trance Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shrikhand&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a late-night music video; controls speak plainly and get out of the way.
+   IDEA: a VJ rig whose scenes are programs running in a sealed VM, cut on the beat by a director.
+   PICTURE: the full-screen live scene, letterboxed, with film grain, bloom and colour fringing.
+   COLOUR and TYPE: void violet-black, warm paper text, tangerine accent; Shrikhand titles, Inter UI, JetBrains Mono code.
+   LAYOUT: scene edge to edge, lower-third title, glass dock at the bottom that hides while the music plays, script drawer on the right. */
+:root{color-scheme:dark;--void:#07050a;--glass:rgba(20,14,26,.74);--line:rgba(244,236,223,.14);--ink:#f4ecdf;--dim:rgba(244,236,223,.66);--hot:#ff7a45;--hot-ink:#1a0e08;--bad:#ff8f8f;--bar:0px;--dockh:120px}
+*{box-sizing:border-box;min-width:0}
+html,body{height:100%}
+body{margin:0;background:var(--void);color:var(--ink);font:15px/1.5 Inter,system-ui,sans-serif;overflow:hidden}
+body.idle{cursor:none}
+.view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.glass{background:var(--glass);backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);border:1px solid var(--line);border-radius:16px}
+.fade{transition:opacity .6s}
+body.idle .fade{opacity:0;pointer-events:none}
+#hud{position:fixed;top:calc(var(--bar) + 14px);right:16px;padding:8px 14px;font:500 13px/1.4 "JetBrains Mono",monospace;color:var(--dim);white-space:nowrap;display:flex;gap:8px;align-items:center}
+#hud b{color:var(--ink);font-weight:500}
+.drums{display:flex;gap:4px}.drums i{font:600 11px/18px "JetBrains Mono",monospace;font-style:normal;width:18px;height:18px;text-align:center;border-radius:5px;color:#140f18;opacity:.2}
+#d-k{background:var(--hot)}#d-s{background:#f4ecdf}#d-h{background:#9fe3ff}
+#d-beats{letter-spacing:2px;color:var(--hot)}
+#vmtag{position:fixed;top:calc(var(--bar) + 64px);right:16px;padding:6px 12px;border-radius:999px;background:rgba(255,122,69,.16);border:1px solid rgba(255,122,69,.5);color:var(--ink);font:500 12.5px "JetBrains Mono",monospace;opacity:0;transform:translateY(-6px);transition:opacity .25s,transform .25s;pointer-events:none;z-index:3}
+#vmtag.show{opacity:1;transform:none}
+#dock{position:fixed;left:16px;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+#dock>*{pointer-events:auto}
+.bar{display:flex;gap:8px;align-items:center;padding:8px;flex-wrap:wrap}
+.nav{display:flex;align-items:center;gap:6px;flex:1 1 300px}
+.now{flex:1;display:flex;align-items:center;gap:10px;justify-content:flex-start;overflow:hidden;border-radius:14px;padding:0 14px}
+.now small{font:500 12px "JetBrains Mono",monospace;color:var(--dim)}
+.now b{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.now span{color:var(--dim);font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
+#manager{position:fixed;left:16px;right:16px;bottom:calc(var(--dockh) + 24px);max-height:min(60vh,560px);display:flex;flex-direction:column;padding:14px;gap:8px;z-index:4}
+#manager[hidden]{display:none}
+.mtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mtop h2{font:600 16px/1.2 Inter,sans-serif;margin:0}
+#m-count{color:var(--dim);font-size:13px;flex:1}
+.mnote{margin:0;color:var(--dim);font-size:13px}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;overflow:auto;padding:2px}
+.scard{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:12px;padding:4px 4px 4px 12px;min-height:58px}
+.scard.feat{border-color:rgba(255,122,69,.35)}
+.scard.cur{border-color:var(--hot);background:rgba(255,122,69,.08)}
+.scard.off .play{opacity:.5}
+.scard .play{flex:1;text-align:left;border:0;padding:0;min-height:48px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;border-radius:8px;white-space:normal}
+.scard .play b{font-weight:600;font-size:14px}
+.scard .play small{font-size:12px;color:var(--dim)}
+.switch{appearance:none;-webkit-appearance:none;width:46px;height:28px;border-radius:999px;background:rgba(244,236,223,.2);position:relative;cursor:pointer;flex:none;margin:8px;transition:background .2s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--ink);transition:transform .2s}
+.switch:checked{background:var(--hot)}
+.switch:checked::after{transform:translateX(18px)}
+.switch:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+button{font:500 14px/1 Inter,system-ui,sans-serif;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:999px;min-height:44px;padding:0 16px;cursor:pointer;white-space:nowrap;flex:none}
+button:hover{border-color:rgba(244,236,223,.4)}
+button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button[aria-pressed=true]{background:var(--ink);color:#140f18;border-color:var(--ink)}
+button.hot{background:var(--hot);color:var(--hot-ink);border-color:var(--hot);font-weight:600}
+kbd{font:500 11px "JetBrains Mono",monospace;opacity:.6;margin-left:6px}
+.track{flex:1 1 240px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:0 6px}
+.track b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track span{font:500 12.5px "JetBrains Mono",monospace;color:var(--dim);white-space:nowrap}
+.tl{grid-column:1/-1;position:relative;height:24px;margin-top:5px}
+.tl[hidden]{display:none}
+.tl .lane{position:absolute;left:0;right:0;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.06)}
+.tl .secs{top:0;height:5px}
+.tl .shots{top:8px;height:14px}
+.tl .lane i{position:absolute;top:0;bottom:0}
+.tl .shots i{box-shadow:inset -1px 0 rgba(0,0,0,.6);opacity:.85}
+.tl .shots i.ins{top:3px;bottom:3px;opacity:1}
+.tl:not(.mapped) .lane{display:none}
+.tl .drops b{position:absolute;top:-3px;bottom:0;width:2px;margin-left:-1px;background:#ffe14d;box-shadow:0 0 6px #ffe14d;pointer-events:none}
+.tl #seek{position:absolute;left:0;top:0;width:100%;height:100%;margin:0;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
+.tl:not(.mapped) #seek{accent-color:var(--hot);-webkit-appearance:auto;appearance:auto}
+.tl.mapped #seek::-webkit-slider-runnable-track{background:transparent;height:24px}
+.tl.mapped #seek::-webkit-slider-thumb{-webkit-appearance:none;width:4px;height:28px;margin-top:-2px;border-radius:2px;background:#fff;box-shadow:0 0 10px rgba(255,255,255,.9)}
+.tl.mapped #seek::-moz-range-track{background:transparent}
+.tl.mapped #seek::-moz-range-thumb{width:4px;height:28px;border:0;border-radius:2px;background:#fff}
+select{font:500 14px/1 Inter,system-ui,sans-serif;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:999px;min-height:44px;padding:0 14px;cursor:pointer;flex:none;max-width:220px}
+select option{background:#1a1420;color:var(--ink)}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+#moments{display:none;padding:8px 10px;gap:8px;align-items:center;overflow-x:auto;align-self:flex-start;max-width:100%}
+#moments.has{display:flex}
+#moments>span{font-size:12.5px;color:var(--dim);flex:none;padding:0 4px}
+.moment{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border-radius:12px;min-height:52px}
+.moment img{width:72px;height:44px;object-fit:cover;border-radius:8px;display:block}
+.moment small{font:500 12px/1.3 "JetBrains Mono",monospace;text-align:left;color:var(--dim)}
+.moment small b{display:block;color:var(--ink);font-weight:500}
+.lower{position:fixed;left:clamp(18px,4vw,48px);bottom:calc(var(--bar) + 26px);transition:bottom .6s,opacity .8s,transform .8s;opacity:0;transform:translateY(12px);pointer-events:none;max-width:calc(100vw - 40px)}
+body:not(.idle) .lower{bottom:calc(var(--dockh) + 30px)}
+.lower.show{opacity:1;transform:none}
+#title b{display:block;font:400 clamp(30px,5vw,56px)/1.05 Shrikhand,Georgia,serif;color:var(--ink);text-shadow:0 2px 3px rgba(0,0,0,.8),0 0 28px rgba(0,0,0,.85),0 0 60px rgba(0,0,0,.6);overflow-wrap:anywhere}
+#title span{display:block;margin-top:6px;font-size:14px;color:var(--ink);text-shadow:0 1px 3px #000,0 0 16px rgba(0,0,0,.9)}
+#caption{font:500 13px "JetBrains Mono",monospace;color:var(--ink);text-shadow:0 1px 10px #000}
+#caption.lower{bottom:calc(var(--bar) + 26px);left:auto;right:clamp(18px,4vw,48px);text-align:right}
+body:not(.idle) #caption.lower{bottom:calc(var(--dockh) + 30px)}
+#drawer{position:fixed;top:16px;right:16px;bottom:16px;width:min(500px,calc(100vw - 32px));display:flex;flex-direction:column;padding:14px;gap:10px;transform:translateX(calc(100% + 24px));transition:transform .35s cubic-bezier(.2,.8,.2,1);z-index:5}
+#drawer.open{transform:none}
+.drawer-top{display:flex;align-items:center;gap:8px}
+.drawer-top h2{font:600 16px/1.2 Inter,sans-serif;margin:0;flex:1}
+textarea{flex:1;min-height:200px;resize:none;width:100%;background:rgba(5,3,8,.7);color:#f1e9ff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font:13.5px/1.55 "JetBrains Mono",monospace;tab-size:2;white-space:pre;overflow:auto}
+#err{display:none;margin:0;padding:10px 12px;border-radius:10px;background:rgba(255,90,90,.12);border:1px solid rgba(255,143,143,.4);color:var(--bad);font:13px/1.45 "JetBrains Mono",monospace;white-space:pre-wrap}
+#err.show{display:block}
+details{font-size:13.5px;color:var(--dim)}
+summary{cursor:pointer;color:var(--ink);font-weight:500;padding:6px 0}
+details code{font:12.5px "JetBrains Mono",monospace;color:#f1e9ff}
+details dl{margin:6px 0 0;display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:6px 12px;max-height:32vh;overflow:auto}
+details dt{white-space:nowrap}details dd{margin:0}
+#toast{position:fixed;left:50%;top:calc(var(--bar) + 16px);transform:translate(-50%,-24px);opacity:0;visibility:hidden;transition:transform .3s,opacity .3s,visibility .3s;padding:10px 16px;max-width:min(560px,calc(100vw - 32px));font-size:14px;z-index:6;pointer-events:none}
+#toast.show{transform:translate(-50%,0);opacity:1;visibility:visible}
+#toast.bad{color:var(--bad)}
+#start{position:fixed;inset:0;display:grid;place-items:center;padding:20px;z-index:7;background:rgba(7,5,10,.35)}
+#start[hidden]{display:none}
+#start .card{padding:clamp(22px,4vw,36px);max-width:520px;width:100%}
+#start h1{font:400 clamp(38px,7vw,60px)/1 Shrikhand,Georgia,serif;color:var(--hot);margin:0 0 10px}
+#start p{margin:0 0 18px;color:var(--dim)}
+#start .row{display:flex;flex-wrap:wrap;gap:8px}
+#start small{display:block;margin-top:16px;color:var(--dim);font-size:13px}
+#drop{position:fixed;inset:12px;border:2px dashed var(--hot);border-radius:20px;display:none;place-items:center;font:400 34px Shrikhand,Georgia,serif;color:var(--hot);z-index:8;background:rgba(7,5,10,.6);pointer-events:none}
+#drop.show{display:grid}
+@media(max-width:600px){
+  #hud{right:10px;font-size:11.5px;padding:6px 10px}#hud .wide{display:none}
+  #dock{left:10px;right:10px;bottom:10px}
+  #manager{left:10px;right:10px;bottom:calc(var(--dockh) + 18px)}
+  #m-count{order:5;flex-basis:100%}
+  .mtop h2{flex:1}
+  .nav{flex-basis:100%}
+  #drawer{top:auto;left:10px;right:10px;bottom:10px;width:auto;height:68vh;transform:translateY(calc(100% + 24px))}
+  .actions button,.bar>button{padding:0 12px}kbd{display:none}
+  #caption{display:none}
+}
+@media(prefers-reduced-motion:reduce){#drawer,#toast,.lower{transition:none}}
+</style>
+</head>
+<body>
+<canvas id="scene" class="view" aria-label="Music video scene computed by a script"></canvas>
+<canvas id="ovl" class="view" aria-hidden="true" style="pointer-events:none"></canvas>
+
+<div id="title" class="lower"><b id="title-name"></b><span id="title-sub"></span></div>
+<div id="caption" class="lower"></div>
+
+<div id="hud" class="glass fade" aria-live="off">
+  <span class="drums" title="Kick, snare and hi-hat detectors"><i id="d-k">K</i><i id="d-s">S</i><i id="d-h">H</i></span>
+  <span id="d-beats" title="Beat in the bar">○○○○</span><b id="d-bpm">– BPM</b><span id="d-key" class="wide"></span>
+  <span class="wide"><b id="fps">–</b> fps · VM <b id="vm">–</b> ms · <b id="count">–</b></span>
+</div>
+<div id="vmtag" aria-live="polite"></div>
+
+<div id="dock" class="fade">
+  <div id="moments" class="glass" aria-label="Captured moments"><span>Moments · click to jump back</span></div>
+  <div class="bar glass">
+    <button id="play" class="hot">Play<kbd>Space</kbd></button>
+    <div class="track"><b id="track-name">No music yet</b><span id="track-meta">–</span><div id="tl" class="tl" hidden><div id="tl-secs" class="lane secs"></div><div id="tl-shots" class="lane shots"></div><div id="tl-drops" class="drops"></div><input id="seek" type="range" min="0" max="1" step="0.1" value="0" aria-label="Song position"></div></div>
+    <select id="tracks" aria-label="Track"><option value="0">Grimoire of the Sloperator</option><option value="1">Slow Burn · 84 BPM</option><option value="2">Breakneck · 172 BPM</option></select>
+    <button id="demo">Demo track</button>
+    <button id="pick">Song file…</button>
+    <input id="file" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.oga,.flac,.opus,.webm" hidden>
+  </div>
+  <div class="bar glass">
+    <button id="auto" aria-pressed="true" title="Cut to a new scene every 32 beats">Auto-cycle<kbd>A</kbd></button>
+    <div class="nav">
+      <button id="prev" aria-label="Previous scene" title="Previous scene (←)">◀</button>
+      <button id="now" class="now" aria-controls="manager" title="Open the scene list"><small id="now-num">01</small><b id="now-name">Scene</b><span id="now-by"></span></button>
+      <button id="next" aria-label="Next scene" title="Next scene (→)">▶</button>
+    </div>
+    <div class="actions">
+      <button id="scenes-btn" aria-pressed="false" aria-controls="manager">Scenes <span id="rot-count"></span><kbd>S</kbd></button>
+      <button id="capture">Capture<kbd>C</kbd></button>
+      <button id="edit" aria-pressed="false">Edit script<kbd>E</kbd></button>
+      <button id="full">Fullscreen<kbd>F</kbd></button>
+      <button class="install" hidden title="Install Trance Engine as a desktop app with its own window">Install app</button>
+    </div>
+  </div>
+</div>
+
+<section id="manager" class="glass" aria-label="Scene list" hidden>
+  <div class="mtop"><h2>Scenes</h2><span id="m-count"></span><button id="m-all">All on</button><button id="m-none">All off</button><button id="m-close" aria-label="Close scene list">✕</button></div>
+  <p class="mnote">Click a scene to play it. Switch a scene off to keep it out of auto-cycle and the ◀ ▶ buttons.</p>
+  <div id="m-grid" class="mgrid"></div>
+</section>
+
+<aside id="drawer" class="glass" aria-label="Scene script">
+  <div class="drawer-top">
+    <h2 id="drawer-title">Scene script</h2>
+    <button id="reset" title="Restore this scene's original script">Reset</button>
+    <button id="run" class="hot">Run<kbd>⌘↵</kbd></button>
+    <button id="close" aria-label="Close editor">✕</button>
+  </div>
+  <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Script source"></textarea>
+  <pre id="err" role="alert"></pre>
+  <details>
+    <summary>What a script can do</summary>
+    <dl>
+      <dt><code>await frame(shapes, fx)</code></dt><dd>Draws one frame, waits for the next, and returns <code>{ t, dt, frame, w, h, cx, cy, mx, my, down, audio }</code>. It is the only door out of the VM.</dd>
+      <dt><code>s.audio</code></dt><dd><code>bass</code>, <code>mid</code>, <code>high</code>, <code>level</code> and slow <code>energy</code> (0–1); <code>kick</code> jumps to 1 on a beat and decays; <code>beat</code> is true on beat frames; <code>beats</code> counts them; <code>bands</code> is 32 values from lows to highs.</dd>
+      <dt>Sound types</dt><dd><code>kickHit</code>, <code>snareHit</code>, <code>hatHit</code> are true on the frame each kind of drum hits; <code>kick</code>, <code>snare</code>, <code>hat</code> are 0–1 envelopes (slow, medium, fast decay); <code>kicks</code>, <code>snares</code>, <code>hats</code> count them. <code>snap</code>/<code>snapHit</code> follow the snare.</dd>
+      <dt>Timbre</dt><dd><code>bright</code> 0–1 (spectral centroid: dark to bright), <code>noise</code> 0–1 (spectral flatness: tonal to noisy) and <code>tonal</code>; <code>chroma</code> is 12 pitch-class strengths, <code>note</code> the loudest now, <code>key</code> the tonal centre and <code>keyHue</code> its colour on the circle of fifths.</dd>
+      <dt>Rhythm</dt><dd><code>beat</code> comes from a phase-locked beat clock, steady even when a kick is missed; <code>phase</code> 0–1 between beats, <code>anticip</code> ramps up in the last quarter-beat before the next one, <code>bar</code> 0–3, <code>barPhase</code> 0–1 across the bar, <code>downbeat</code> on each "1", <code>phrase</code> 0–7 bar in the 8-bar phrase, <code>phraseStart</code>, <code>bpm</code>, <code>beatConf</code>.</dd>
+      <dt>Sections</dt><dd><code>calm</code> 0–1 in breakdowns and quiet intros; <code>drop</code> true on the frame a drop lands, <code>dropAmt</code> 1 then fading over about 2 s. A drop also makes the director cut.</dd>
+      <dt>Song map</dt><dd>For mapped songs: <code>section</code> ("intro", "verse", "build", "drop", "main", "breakdown", "outro"), <code>build</code> 0–1 rising through a build, <code>toDrop</code> seconds to the next drop, <code>sectionPos</code> and <code>songPos</code> 0–1. Hits and beats come from the map, so they stay exact when you seek.</dd>
+      <dt><code>{ k: "c", x, y, r }</code></dt><dd>Circle, filled unless <code>fill: false</code>.</dd>
+      <dt><code>{ k: "p", pts }</code></dt><dd>Path through <code>[x0, y0, x1, y1, …]</code>. Closed unless <code>close: false</code>; outlined unless <code>fill: true</code>.</dd>
+      <dt><code>{ k: "l", x1, y1, x2, y2 }</code></dt><dd>Line.</dd>
+      <dt><code>{ k: "t", text, x, y, size }</code></dt><dd>Text.</dd>
+      <dt>Colour</dt><dd><code>h</code> hue in degrees, <code>s</code> and <code>l</code> in %, <code>a</code> 0–1, <code>lw</code> line width.</dd>
+      <dt><code>fx.trail</code></dt><dd>How much of the last frame survives, 0–0.995.</dd>
+      <dt><code>fx.zoom</code>, <code>fx.spin</code></dt><dd>Feedback scale per frame (1 is still) and rotation in radians.</dd>
+      <dt><code>fx.hue</code></dt><dd>Degrees the old frames drift in colour each frame.</dd>
+      <dt><code>fx.mirror</code></dt><dd>Kaleidoscope slices (even number, 0 for off).</dd>
+      <dt><code>fx.react</code></dt><dd>Optional <code>{ punch, slice, sparkle, shake, tint }</code> 0–2: how strongly the frame itself reacts to kicks (zoom punch), snares (slice glitch), hats (shimmer), bass (shake) and the key (colour grade).</dd>
+      <dt><code>fx.blend</code></dt><dd><code>"lighter"</code> (glow), <code>"screen"</code>, <code>"difference"</code> or <code>"source-over"</code>.</dd>
+      <dt>Not here</dt><dd>No timers, DOM, <code>fetch</code> or <code>eval</code>. A loop that never awaits <code>frame()</code> is stopped after 3 s. Auto-cycle pauses while you edit.</dd>
+    </dl>
+  </details>
+</aside>
+
+<div id="start"><div class="card glass">
+  <h1>Trance Engine</h1>
+  <p>A music video directed live by the music. Feature scenes tell the story in phases, flourishes punctuate it, and every scene is a small program running inside a sealed Psychoscript VM that hears the song only through <code>frame()</code>.</p>
+  <div class="row">
+    <button id="s-song" class="hot">Play “Grimoire of the Sloperator”</button>
+    <button id="s-slow">Slow Burn · 84 BPM</button>
+    <button id="s-break">Breakneck · 172 BPM</button>
+    <button id="s-demo">Demo track</button>
+    <button id="s-file">Choose a song…</button>
+    <button id="s-silent">Watch without sound</button>
+    <button class="install" hidden>Install as an app</button>
+  </div>
+  <small id="s-note">Every song is mapped first (beats, sections, builds, drops), so cuts land on the music, and scrubbing the timeline rewinds the scenes themselves from VM snapshots. You can also drop an audio file anywhere; it plays and is mapped on your device and is not uploaded.</small>
+</div></div>
+<div id="drop">Drop to play</div>
+<div id="toast" class="glass" role="status"></div>
+
+<script type="text/plain" id="engine">/*ENGINE*/</script>
+<script>
+{
+/*PRESETS*/
+/*APP*/
+}
+</script>
+</body>
+</html>

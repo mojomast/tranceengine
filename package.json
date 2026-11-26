@@ -1,0 +1,19 @@
+{
+  "name": "tranceengine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A music video directed by the music: sandboxed Psychoscript scenes, a song mapper and a planned edit that lands on every drop.",
+  "type": "module",
+  "scripts": {
+    "build": "bun tools/build.mjs",
+    "build:offline": "bun tools/build.mjs --offline",
+    "check": "bun tools/check-scene.mjs",
+    "check:all": "bun tools/check-all.mjs",
+    "map": "bun tools/map-songs.mjs",
+    "eval:mapper": "bun tools/eval-mapper.mjs",
+    "test:e2e": "python3 tools/e2e/smoke.py"
+  },
+  "dependencies": {
+    "psychoscript": "^0.3.0"
+  }
+}
