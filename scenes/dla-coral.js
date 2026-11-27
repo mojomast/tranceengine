@@ -83,7 +83,7 @@ const seedWalk = (w) => {
 // Seed the fan before the first visible frame, so the insert reads as coral on the downbeat.
 let guard = 0
 const seedW = { x: 0, y: 0, px: 0, py: 0, life: 0 }
-while (cells.length < 240 && guard < 160000) {
+while (cells.length < 150 && guard < 160000) {
   seedWalk(seedW)
   for (let st = 0; st < 700; st++) {
     guard++
@@ -103,10 +103,10 @@ while (cells.length < 240 && guard < 160000) {
   }
 }
 const baseN = cells.length
-const CAP = 468
+const CAP = 280
 const walkers = []
 const launch = (w) => seedWalk(w)
-for (let i = 0; i < 18; i++) {
+for (let i = 0; i < 8; i++) {
   const w = { x: 0, y: 0, px: 0, py: 0, life: 0 }
   launch(w)
   walkers.push(w)
@@ -149,12 +149,12 @@ while (true) {
   }
   let release = 1 + (A.kickHit ? 5 : 0) + Math.floor(bass * 2) + (dropAmt > 0.25 ? 2 : 0)
   release = Math.floor(release * (1 - calm * 0.65))
-  for (let i = 0; i < release && walkers.length < 30; i++) {
+  for (let i = 0; i < release && walkers.length < 16; i++) {
     const w = { x: 0, y: 0, px: 0, py: 0, life: 0 }
     launch(w)
     walkers.push(w)
   }
-  if (A.snareHit && cells.length > baseN + 2 && walkers.length < 32) {
+  if (A.snareHit && cells.length > baseN + 2 && walkers.length < 18) {
     const k = cells[baseN + Math.floor(rnd() * (cells.length - baseN))]
     const w = { x: (k % 256) - 128, y: Math.floor(k / 256) - 128 - 2, px: 0, py: 0, life: 130 }
     w.px = w.x
@@ -163,13 +163,13 @@ while (true) {
   }
   if (A.drop) {
     pulses.push({ life: 1, dir: 1, h: hue0 + 160 })
-    for (let i = 0; i < 8 && walkers.length < 34; i++) {
+    for (let i = 0; i < 8 && walkers.length < 18; i++) {
       const w = { x: 0, y: 0, px: 0, py: 0, life: 0 }
       launch(w)
       walkers.push(w)
     }
   }
-  const steps = 2 + Math.floor(bass * 2.5) + (A.hatHit ? 1 : 0)
+  const steps = 1 + Math.floor(bass * 2) + (A.hatHit ? 1 : 0)
   const pull = gather * 0.22
   let grow = 1 + (A.kickHit ? 2 : 0) + (bass > 0.55 ? 1 : 0) + (dropAmt > 0.3 ? 2 : 0)
   for (let i = walkers.length - 1; i >= 0; i--) {
@@ -231,7 +231,7 @@ while (true) {
     for (const k of tips) {
       ci++
       if (ci % 3) continue
-      if (ci > 48) break
+      if (ci > 32) break
       const gx = (k % 256) - 128, gy = Math.floor(k / 256) - 128
       out.push({
         k: "c", x: s.cx + ox + gx * cell + jx(k), y: s.cy + oy + gy * cell + jy(k),
@@ -250,9 +250,9 @@ while (true) {
     const rr = span * (p.dir > 0 ? (1 - p.life) * 0.34 : p.life * 0.28)
     out.push({ k: "c", x: s.cx + ox, y: s.cy + oy, r: Math.max(2, rr), h: p.h, s: 76, l: 56, a: p.life * 0.34, fill: false, lw: 1.2 * (span / 800) })
   }
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 10; i++) {
     if (flare < 0.04) break
-    const a = (i / 16) * TAU + s.t * 0.4
+    const a = (i / 10) * TAU + s.t * 0.4
     const rr = span * (0.07 + flare * 0.13)
     out.push({ k: "c", x: s.cx + ox + Math.cos(a) * rr, y: s.cy + oy + Math.sin(a) * rr, r: 1.3 * (span / 800) * (0.4 + flare), h: hue0 + 195, s: 75, l: 60, a: flare * 0.45 })
   }
