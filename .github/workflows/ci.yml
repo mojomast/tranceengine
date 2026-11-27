@@ -21,6 +21,23 @@ jobs:
         run: bun tools/check-all.mjs
       - name: Evaluate the song mapper
         run: bun tools/eval-mapper.mjs
+      - name: Approved tests (Node)
+        # Scene contract tests run the engine checker; shared runners are slower, as with VM_BUDGET_MS above.
+        env:
+          VM_BUDGET_MS: "8"
+          FLOURISH_AVG_MS: "6"
+        run: |
+          shopt -s nullglob
+          files=(tools/test/*.test.mjs)
+          if [ ${#files[@]} -gt 0 ]; then node --test "${files[@]}"; else echo "no Node tests yet"; fi
+      - name: Approved tests (Python)
+        run: |
+          shopt -s nullglob
+          files=(tools/test/test_*.py)
+          if [ ${#files[@]} -gt 0 ]; then
+            pip install numpy scipy
+            python3 -m unittest discover -s tools/test -p 'test_*.py' -v
+          else echo "no Python tests yet"; fi
 
   e2e:
     runs-on: ubuntu-latest
