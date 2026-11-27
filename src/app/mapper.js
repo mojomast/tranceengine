@@ -31,10 +31,12 @@ const mapSong = (input, inRate) => {
   for (let k = binOf(100); k <= binOf(2000); k++) pc[k] = ((Math.round(12 * Math.log2((k * binHz) / 440) + 69) % 12) + 12) % 12
   const L = (a, b) => [binOf(a), binOf(b)]
   const LOW = L(30, 150), MIDB = L(150, 1500), CRACK = L(1500, 5000), SIZZ = L(7000, 10500), ALL = L(30, 8000)
+  const KICKB = L(40, 150)
   // Per-frame features.
   const F = {
     level: new Float32Array(frames), low: new Float32Array(frames), mid: new Float32Array(frames), high: new Float32Array(frames),
     fluxAll: new Float32Array(frames), fluxLow: new Float32Array(frames), fluxCrack: new Float32Array(frames), fluxHigh: new Float32Array(frames),
+    kickFlux: new Float32Array(frames), kickE: new Float32Array(frames), kickW: new Float32Array(frames),
     flatCrack: new Float32Array(frames), crackP: new Float32Array(frames), sizzP: new Float32Array(frames), bright: new Float32Array(frames), noise: new Float32Array(frames),
     bands: new Float32Array(frames * 32), chroma: new Float32Array(frames * 12),
   }
@@ -50,6 +52,18 @@ const mapSong = (input, inRate) => {
     const flux = (r) => { let s = 0; for (let k = r[0]; k <= r[1]; k++) { const d = lm[k] - prev[k]; if (d > 0) s += d } return s / (r[1] - r[0] + 1) }
     F.low[f] = sum(LOW, lm); F.mid[f] = sum(MIDB, lm); F.high[f] = sum(SIZZ, lm)
     F.fluxAll[f] = flux(ALL); F.fluxLow[f] = flux(LOW); F.fluxCrack[f] = flux(CRACK); F.fluxHigh[f] = flux(SIZZ)
+    // Kick band (SuperFlux, Boeck & Widmer 2013): positive log-magnitude difference against a maximum
+    // filter over neighbouring bins of the previous frame: moving bass lines and vibrato cancel,
+    // while a kick's fast pitch sweep (150->50 Hz in ~20 ms) still jumps out.
+    let kf = 0, ke = 0, ks = 0
+    for (let k = KICKB[0]; k <= KICKB[1]; k++) {
+      const m = Math.max(prev[k - 2], prev[k - 1], prev[k], prev[k + 1], prev[k + 2])
+      const d = lm[k] - m
+      if (d > kf) kf = d
+      if (d > 0.15) ks++
+      ke += Math.expm1(lm[k])
+    }
+    F.kickFlux[f] = kf; F.kickE[f] = ke; F.kickW[f] = kf > 0 ? ks : 0
     let lg = 0, ar = 0
     for (let k = CRACK[0]; k <= CRACK[1]; k++) { const p = Math.expm1(lm[k]) + 1e-6; lg += Math.log(p); ar += p }
     const cn = CRACK[1] - CRACK[0] + 1
@@ -66,7 +80,8 @@ const mapSong = (input, inRate) => {
   }
   // Normalise each feature to its 95th percentile so every song drives the visuals over the same range.
   const pct = (arr, p) => { const s = Array.from(arr).filter((v) => v > 0).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length * p)] : 1 }
-  for (const key of ["level", "low", "mid", "high", "fluxAll", "fluxLow", "fluxCrack", "fluxHigh"]) { const q = pct(F[key], 0.95) || 1, cap = key.startsWith("flux") ? 4 : 1.5; for (let i = 0; i < frames; i++) F[key][i] = Math.min(cap, F[key][i] / q) }
+  for (const key of ["level", "low", "mid", "high", "fluxAll", "fluxLow", "fluxCrack", "fluxHigh", "kickFlux"]) { const q = pct(F[key], 0.95) || 1, cap = key.startsWith("flux") || key === "kickFlux" ? 4 : 1.5; for (let i = 0; i < frames; i++) F[key][i] = Math.min(cap, F[key][i] / q) }
+  { const q = pct(F.kickE, 0.95) || 1; for (let i = 0; i < frames; i++) F.kickE[i] /= q }
   { const q = pct(F.bands, 0.97) || 1; for (let i = 0; i < F.bands.length; i++) F.bands[i] = Math.min(1, F.bands[i] / q) }
   { const lo = pct(F.bright, 0.05), hi = pct(F.bright, 0.95); for (let i = 0; i < frames; i++) F.bright[i] = Math.max(0, Math.min(1, (F.bright[i] - lo) / Math.max(0.01, hi - lo))) }
   for (let f = 0; f < frames; f++) { let m = 0; for (let c = 0; c < 12; c++) m = Math.max(m, F.chroma[f * 12 + c]); if (m > 0) for (let c = 0; c < 12; c++) F.chroma[f * 12 + c] /= m }
@@ -85,17 +100,22 @@ const mapSong = (input, inRate) => {
     }
     return out
   }
-  const localMax = (env, i, w) => { let m = 0; for (let j = Math.max(0, i - w); j < Math.min(env.length, i + w); j++) m = Math.max(m, env[j]); return m }
   // Song-wide anchor: a hit must reach a fair share of the song's typical strong hit (90th percentile of all peaks),
   // so quiet passages don't turn small events into kicks and snares.
   const peakPct = (env, p) => { const pk = []; for (let i = 1; i < env.length - 1; i++) if (env[i] > env[i - 1] && env[i] >= env[i + 1]) pk.push(env[i]); pk.sort((a, b) => a - b); return pk.length ? pk[Math.floor(pk.length * p)] : 1 }
-  const kickFloor = 0.35 * peakPct(F.fluxLow, 0.9), snareFloor = 0.3 * peakPct(F.fluxCrack, 0.9)
-  // A kick is a strong low hit with a beater click (high-frequency transient); bass notes and pads have no click.
+  const snareFloor = 0.3 * peakPct(F.fluxCrack, 0.9)
+  // Kick drum onsets (Boeck & Widmer 2013, Dixon 2006): peaks of the SuperFlux kick-band envelope over an
+  // adaptive threshold (local mean + k·deviation) with a minimum inter-onset gap. A kick has a beater click
+  // (high-frequency transient) and a flux spanning several band bins (its fast pitch sweep), and it pumps new
+  // energy into the band; pads, moving bass lines and already-sounding 808s fail at least one of these.
   const click = (i) => Math.max(F.fluxCrack[i] + F.fluxHigh[i], F.fluxCrack[i + 1] + F.fluxHigh[i + 1] || 0, F.fluxCrack[i - 1] + F.fluxHigh[i - 1] || 0)
-  // ...and its low-frequency level jumps, not just wobbles (snare bodies and rolls barely move the sub).
-  const lowJump = (i) => { let m = 1e9; for (let j = Math.max(0, i - 8); j < i; j++) m = Math.min(m, F.low[j]); return F.low[Math.min(frames - 1, i + 1)] - m }
-  const localMedian = (env, i, w) => { const a = []; for (let j = Math.max(0, i - w); j < Math.min(env.length, i + w); j += 2) a.push(env[j]); a.sort((p, q) => p - q); return a[a.length >> 1] || 0 }
-  const kickRaw = pick(F.fluxLow, 1.4, Math.max(0.7, kickFloor), 0.16, (i) => F.fluxAll[i] > 0.2 && F.fluxLow[i] > 0.5 * localMax(F.fluxLow, i, Math.round(1.5 * fps)) && click(i) > 0.3 && lowJump(i) > 0.12 && F.fluxLow[i] > 2.4 * localMedian(F.fluxLow, i, Math.round(fps)) + 0.15 && F.fluxLow[i] > 1.1 * Math.max(F.fluxCrack[i], F.fluxCrack[i + 1] || 0))
+  // Backtrack from the flux peak to where the band energy starts rising: the flux maximum lags the hit by
+  // most of the analysis window. The rise starts when the hit enters the window, so report a fixed
+  // 3 hops (~35 ms, about 3/4 of the window) later to centre the estimate on the hit.
+  const riseStart = (p) => { let j = p; const lo = Math.max(0, p - Math.round(0.08 * fps)); while (j > lo && F.kickE[j - 1] <= F.kickE[j]) j--; return j }
+  const kickRise = (i, j) => F.kickE[Math.min(frames - 1, i + 4)] - F.kickE[Math.max(0, j - 1)]
+  const kickPk = pick(F.kickFlux, 1.7, 0.25, 0.15, (i) => { const j = riseStart(i), c = click(j); return kickRise(i, j) > 0.26 && c > 0.12 && (F.kickW[i] >= 2 || c > 0.8) })
+  const kickRaw = kickPk.map((i) => Math.min(frames - 1, riseStart(i) + 3))
   // A snare or clap is a noisy crack whose energy sits in 1.5–5 kHz rather than above 7 kHz (where hats live).
   const crackHeavy = (i) => Math.max(F.crackP[i], F.crackP[i + 1] || 0) > 1.2 * Math.max(F.sizzP[i], F.sizzP[i + 1] || 0)
   const snareF = pick(F.fluxCrack, 1.1, Math.max(0.14, snareFloor), 0.1, (i) => F.flatCrack[i] > 0.2 && crackHeavy(i))
@@ -164,7 +184,7 @@ const mapSong = (input, inRate) => {
     // Snares repeating every 4 tracked beats (one per real half-bar) also mean double time.
     const h4 = [0, 1, 2, 3].map((q) => hist[q] + hist[q + 4]), top4 = Math.max(...h4)
     const others = hist.filter((v) => v > total * 0.25).length
-    debug.snareHist = hist; debug.floors = [kickFloor.toFixed(2), snareFloor.toFixed(2)]
+    debug.snareHist = hist; debug.floors = ["0.25", snareFloor.toFixed(2)]
     if (total >= 8 && bpm > 110 && ((top > total * 0.5 && others === 1) || top4 > total * 0.75)) {
       const parityScore = [0, 0]
       beatF.forEach((f, i) => { parityScore[i % 2] += (near(kickRaw, f, 3) ? 1 : 0) + (near(snareF, f, 3) ? 1 : 0) })
