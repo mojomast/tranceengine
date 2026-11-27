@@ -33,6 +33,18 @@
     { "file": "orbit-garden.js", "tier": "flourish", "by": "Haiku agent" },
     { "file": "lava-lamp.js", "tier": "flourish", "by": "Haiku agent" },
     { "file": "lissajous-bloom.js", "tier": "flourish", "by": "Claude" },
-    { "file": "hypno-spiral.js", "tier": "flourish", "by": "Haiku agent" }
+    { "file": "hypno-spiral.js", "tier": "flourish", "by": "Haiku agent" },
+    { "file": "truchet-weave.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "oscilloscope-xy.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "sunflower-spiral.js", "tier": "flourish", "by": "bee (hy4-flash)" },
+    { "file": "laser-fan.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "sidechain-bloom.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "arp-constellation.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "life-pulse.js", "tier": "flourish", "by": "bee (kimi-for-coding)" },
+    { "file": "lsystem-garden.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "rule30-loom.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "coroutine-dancers.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "copper-bars.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "signal-glitch.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" }
   ]
 }
