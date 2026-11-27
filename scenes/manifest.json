@@ -45,6 +45,18 @@
     { "file": "rule30-loom.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
     { "file": "coroutine-dancers.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
     { "file": "copper-bars.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
-    { "file": "signal-glitch.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" }
+    { "file": "signal-glitch.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "turing-spots.js", "tier": "flourish", "by": "bee (kimi-for-coding)" },
+    { "file": "time-echo.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "epicycle-draw.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "bauhaus-blocks.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "step-sequencer.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "chladni-sand.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "byte-poem.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "vector-wireframe.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "plasma-lattice.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "riley-waves.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "memphis-party.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "phosphor-odyssey.js", "tier": "feature", "by": "bee (kimi-for-coding)" }
   ]
 }
