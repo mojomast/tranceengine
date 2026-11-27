@@ -17,7 +17,7 @@ const UP = -Math.PI / 2
 const MAXD = 8 // deepest generation
 const FORK_GEN = 4 // generations below this are seeded: the trunk every fork shares
 const LEAF_D = 3 // tips from this depth carry leaves
-const MAXB = 460 // branch cap keeps the frame inside budget
+const MAXB = 240 // branch cap keeps the frame inside budget
 
 // seeded mulberry32 PRNG: the trunk's decisions, replayed exactly by every forked copy
 let rngState = 0x2f6e2b1
@@ -43,6 +43,8 @@ const spawn = (bx, by, ang, len, depth, mature) => {
     leafy: depth >= LEAF_D, kids: 0, re: 0,
     ph: pick(depth) * TAU, k2: depth * depth * 0.02,
   })
+  const b = branches[branches.length - 1]
+  b.bp = Math.sin(b.ph); b.cp = Math.cos(b.ph)
 }
 // every mature tip forks into children; the decision randomness is what the fork splits
 const sproutAll = () => {
@@ -78,7 +80,7 @@ for (let i = 0; i < branches.length; i++) branches[i].grow = 1
 
 // falling leaves and tip glints live in fixed pools: no allocation in the loop
 const falls = []
-for (let i = 0; i < 56; i++) falls.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, ph: 0, life: 0, h: 0 })
+for (let i = 0; i < 40; i++) falls.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, ph: 0, life: 0, h: 0 })
 let fi = 0
 const spawnFall = (x, y, h) => {
   const p = falls[fi]
@@ -94,7 +96,7 @@ const spawnFall = (x, y, h) => {
   p.h = h
 }
 const glints = []
-for (let i = 0; i < 12; i++) glints.push({ on: false, x: 0, y: 0, life: 0, h: 0 })
+for (let i = 0; i < 10; i++) glints.push({ on: false, x: 0, y: 0, life: 0, h: 0 })
 let gli = 0
 const spawnGlint = (x, y, h) => {
   const g = glints[gli]
@@ -134,6 +136,7 @@ while (true) {
   const growV = dt * (2.4 + pull * 3.2 + rel * 1.5) * (1 - calm * 0.35)
   const bx0 = s.cx, by0 = s.cy + span * 0.38
   const ph0 = s.t * 1.4
+  const sy0 = Math.sin(ph0), cy0 = Math.cos(ph0)
 
   // ground glow and the root pulse on the downbeat
   out.push({ k: "c", x: bx0, y: by0 + 4 * U, r: span * 0.15, h: baseHue + 20, s: 60, l: 42, a: 0.1 + dp * 0.08 + kickEnv * 0.05 })
@@ -143,7 +146,7 @@ while (true) {
     const b = branches[i]
     if (b.grow < 1) b.grow = Math.min(1, b.grow + growV)
     else if (!b.leafy && b.re > 0 && s.t >= b.re && b.kids === 0) { b.leafy = true; b.re = 0 }
-    const bend = (lean + Math.sin(ph0 + b.ph) * sway) * b.k2
+    const bend = (lean + (sy0 * b.cp + cy0 * b.bp) * sway) * b.k2
     const gx = b.grow < 1 ? b.bx + (b.ex - b.bx) * b.grow : b.ex
     const gy = b.grow < 1 ? b.by + (b.ey - b.by) * b.grow : b.ey
     const x1 = bx0 + (b.bx * squeeze + bend) * H
