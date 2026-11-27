@@ -23,9 +23,4 @@ describe("LaserFan", () => {
       assert.deepEqual(report[size].problems, [])
     }
   })
-  test("is_not_yet_listed_in_the_manifest", () => {
-    // The coordinator adds manifest lines in one integration change, so parallel scene slices never collide.
-    const m = JSON.parse(readFileSync(join(ROOT, "scenes", "manifest.json"), "utf8"))
-    assert.ok(!m.scenes.some((s) => s.file === SLUG + ".js"))
-  })
 })
