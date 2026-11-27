@@ -6,6 +6,8 @@
 // Psychoscript technique: a seeded mulberry32 PRNG (Math.imul) fixes every cell's hue
 // and lightness jitter at layout, and a seeded hash picks each downbeat's angle step,
 // so a rewind, beat-repeat or replay redraws exactly the same frames. No Math.random.
+// Cells outside the viewport are culled and the surviving star polylines come from
+// shape pools (objects and point arrays reused every frame), so a frame costs writes.
 // Reactions: the downbeat steps the whole tiling to a new star angle, kick pulses the
 // strap width, snare shifts the contact angle, hats shimmer alternate cells, bass
 // swells the stars, keyHue paints the straps, energy lifts brightness; a build (or a
@@ -28,16 +30,26 @@ const hash01 = (n) => {
   t = Math.imul(t ^ (t >>> 13), 0xc2b2ae35)
   return ((t ^ (t >>> 16)) >>> 0) / 4294967296
 }
-const N = 12
+const N = 12, NC = N * N
 let W = 0, H = 0, h0 = 40, U = 1
-let ox = [], oy = [], alt = [], hueJ = [], litJ = [], rad = []
+let ox = [], oy = [], alt = [], hueJ = [], litJ = []
+// Shape pools: two closed polylines per cell (the strap star, plus the {8/3} star on
+// even cells). The same objects and 16-slot point arrays are mutated and re-sent every
+// frame, so a dense frame costs writes, not allocations. Cells that fall outside the
+// viewport are skipped (feedback zoom/spin never brings off-screen ink back in).
+const starPool = [], subPool = []
+for (let i = 0; i < NC; i++) {
+  starPool.push({ k: "p", pts: new Array(16), h: 0, s: 78, l: 50, a: 0.6, lw: 1 })
+  subPool.push({ k: "p", pts: new Array(16), h: 0, s: 70, l: 58, a: 0.5, lw: 1 })
+}
+const out = []
 const layout = () => {
   W = s.w
   H = s.h
   U = Math.min(W, H) / 800
   h0 = (Math.sqrt(W * W + H * H) * 1.04) / (2 * (N - 1))
   const rnd = mulberry32(SEED)
-  ox = []; oy = []; alt = []; hueJ = []; litJ = []; rad = []
+  ox = []; oy = []; alt = []; hueJ = []; litJ = []
   for (let gy = 0; gy < N; gy++) {
     for (let gx = 0; gx < N; gx++) {
       const lx = (gx - (N - 1) / 2) * h0 * 2
@@ -45,16 +57,26 @@ const layout = () => {
       ox.push(lx)
       oy.push(ly)
       alt.push((gx + gy) & 1)
-      hueJ.push((rnd() - 0.5) * 18)
+      // The radial hue drift (radius * 30) is folded into the jitter here, once.
+      hueJ.push((rnd() - 0.5) * 18 + (Math.sqrt(lx * lx + ly * ly) / (h0 * N)) * 30)
       litJ.push((rnd() - 0.5) * 7)
-      rad.push(Math.sqrt(lx * lx + ly * ly) / (h0 * N))
     }
   }
 }
+// Unit strap-star vertices for the current contact angle land in bx/by; the {8/3}
+// star turns as one rigid body, so its eight vertices are composed from a single
+// cos/sin pair and these fixed offsets (k * 3/8 turns) instead of sixteen trig calls.
+const bx = new Array(8), by = new Array(8)
+const C3 = new Array(8), S3 = new Array(8)
+for (let k = 0; k < 8; k++) {
+  C3[k] = Math.cos(k * 3 * (TAU / 8))
+  S3[k] = Math.sin(k * 3 * (TAU / 8))
+}
+const vxr = new Array(8), vyr = new Array(8), sxr = new Array(8), syr = new Array(8)
 let rot = 0, rotT = 0, thetaK = 0
 layout()
 while (true) {
-  const A = s.audio, dt = s.dt, out = []
+  const A = s.audio, dt = s.dt
   if (s.w !== W || s.h !== H) layout()
   const calm = A.calm || 0
   const kick = A.kick || 0
@@ -89,47 +111,72 @@ while (true) {
   const u = (st + ct) / (2 * st * ct)
   const px = u * ct, py = u * st - 1
   const cs = Math.cos(rot), sn = Math.sin(rot)
-  const vx = [], vy = []
-  const addV = (x, y) => {
-    vx.push(x * cs - y * sn)
-    vy.push(x * sn + y * cs)
-  }
-  addV(0, -1); addV(px, py); addV(1, 0); addV(-py, px)
-  addV(0, 1); addV(-px, -py); addV(-1, 0); addV(py, -px)
+  bx[0] = 0; by[0] = -1
+  bx[1] = px; by[1] = py
+  bx[2] = 1; by[2] = 0
+  bx[3] = -py; by[3] = px
+  bx[4] = 0; by[4] = 1
+  bx[5] = -px; by[5] = -py
+  bx[6] = -1; by[6] = 0
+  bx[7] = py; by[7] = -px
+  const R = h0 * br
   const sa = -rot * 0.6 + s.t * 0.1
-  const sx = [], sy = []
+  const ca = Math.cos(sa), qa = Math.sin(sa)
+  const q = 0.44 * R
   for (let k = 0; k < 8; k++) {
-    const a = sa + k * 3 * (TAU / 8)
-    sx.push(Math.cos(a) * 0.44)
-    sy.push(Math.sin(a) * 0.44)
+    vxr[k] = (bx[k] * cs - by[k] * sn) * R
+    vyr[k] = (bx[k] * sn + by[k] * cs) * R
+    sxr[k] = (ca * C3[k] - qa * S3[k]) * q
+    syr[k] = (qa * C3[k] + ca * S3[k]) * q
   }
   const lw = Math.max(0.6, (1.4 + kick * 2.4 + bass * 0.9 + dropAmt * 1.3 + tension * 0.5) * U * (1 - calm * 0.3))
   const alpha = 0.55 + energy * 0.15 + kick * 0.12
   const hb = A.hats || 0
-  const R = h0 * br
-  const vxr = [], vyr = [], sxr = [], syr = []
-  for (let k = 0; k < 8; k++) {
-    vxr.push(vx[k] * R)
-    vyr.push(vy[k] * R)
-    sxr.push(sx[k] * R)
-    syr.push(sy[k] * R)
-  }
+  const hueBase = hue0 + s.t * 6
+  const hueDrop = dropAmt * 170
+  const lBase = 46 + dropAmt * 8 + energy * 4 - calm * 8
+  const lwSub = lw * 0.7, alphaSub = alpha * 0.8
+  const margin = R + lw + 2
+  const mLeft = -margin, mRight = W + margin, mTop = -margin, mBot = H + margin
   const cx = s.cx, cy = s.cy, m = ox.length
+  let oi = 0
   for (let i = 0; i < m; i++) {
     const wx = ox[i] * cs - oy[i] * sn + cx
     const wy = ox[i] * sn + oy[i] * cs + cy
-    const pts = []
-    for (let k = 0; k < 8; k++) pts.push(wx + vxr[k], wy + vyr[k])
-    const shimmer = ((alt[i] + hb) & 1) * hat
-    const hue = hue0 + hueJ[i] + rad[i] * 30 + alt[i] * dropAmt * 170 + s.t * 6
-    const li = Math.min(62, 46 + litJ[i] + shimmer * 12 + dropAmt * 8 + energy * 4 - calm * 8)
-    out.push({ k: "p", pts, close: true, h: hue, s: 78, l: li, a: alpha, lw })
-    if (alt[i] === 0) {
-      const sp = []
-      for (let k = 0; k < 8; k++) sp.push(wx + sxr[k], wy + syr[k])
-      out.push({ k: "p", pts: sp, close: true, h: hue + 30, s: 70, l: Math.min(64, li + 8), a: alpha * 0.8, lw: lw * 0.7 })
+    if (wx < mLeft || wx > mRight || wy < mTop || wy > mBot) continue
+    const o = starPool[i]
+    const pts = o.pts
+    for (let k = 0, j = 0; k < 8; k++, j += 2) {
+      pts[j] = wx + vxr[k]
+      pts[j + 1] = wy + vyr[k]
+    }
+    const a8 = alt[i]
+    const shimmer = ((a8 + hb) & 1) * hat
+    const hue = hueBase + hueJ[i] + a8 * hueDrop
+    let li = lBase + litJ[i] + shimmer * 12
+    if (li > 62) li = 62
+    o.h = hue
+    o.l = li
+    o.a = alpha
+    o.lw = lw
+    out[oi] = o
+    oi++
+    if (a8 === 0) {
+      const p2 = subPool[i]
+      const sp = p2.pts
+      for (let k = 0, j = 0; k < 8; k++, j += 2) {
+        sp[j] = wx + sxr[k]
+        sp[j + 1] = wy + syr[k]
+      }
+      p2.h = hue + 30
+      p2.l = li + 8 > 64 ? 64 : li + 8
+      p2.a = alphaSub
+      p2.lw = lwSub
+      out[oi] = p2
+      oi++
     }
   }
+  out.length = oi
   s = await frame(out, {
     trail: 0.84 + calm * 0.1 + tension * 0.04,
     zoom: 1.003 + kick * 0.012 + dropAmt * 0.015,
