@@ -1,10 +1,12 @@
 // name: Megademo
 // Style: a four-part demoscene megademo in the spirit of Amiga copper bars, dot tunnels, vector bobs and
-// plasma lattices. Psychoscript technique: each phase is a generator coroutine advanced once per frame, and
-// every random choice comes from a seeded mulberry32 PRNG, so rewinds, beat-repeats and replays redraw exactly
-// the same frames. Musical reactions: kickHit/kick pulse the bodies, snareHit flips and jolts, hats and hatHit
-// add glints, bass gives weight and dot size, build/toDrop gather tension, drop releases it, keyHue/note tint
-// the palette, calm slows and thins, energy/high set density and sparkle.
+// plasma lattices. Psychoscript technique: each phase is a generator coroutine advanced once per frame and
+// drawing from its own reused pool of shape objects and point arrays, so a steady frame allocates nothing;
+// the bar edges and the finale's plasma run on angle-sum recurrences and precomputed sine tables, and every
+// random choice comes from a seeded mulberry32 PRNG, so rewinds, beat-repeats and replays redraw exactly the
+// same frames. Musical reactions: kickHit/kick pulse the bodies, snareHit flips and jolts, hats and hatHit
+// add glints, bass gives weight and dot size, build/toDrop gather tension, drop releases it, keyHue/note
+// tint the palette, calm slows and thins, energy/high set density and sparkle.
 let s = await frame([])
 const TAU = Math.PI * 2
 const PHASES = ["I. Copper", "II. Tunnel", "III. Vectors", "IV. Finale"]
@@ -40,15 +42,46 @@ const EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [
 const GW = 18, GH = 12, GN = GW * GH
 const gx = [], gy = []
 for (let i = 0; i < GN; i++) { gx.push(i % GW); gy.push(Math.floor(i / GW)) }
+// Finale plasma tables: sin/cos of the column, row and column+row phases, so each cell's plasma value is
+// plain arithmetic through the angle-sum identities instead of three trig calls per cell per frame.
+const UC = [], VR = [], S9 = [], C9 = [], S5 = [], C5 = [], S8 = [], C8 = [], S4 = [], C4 = [], SUV = [], CUV = []
+for (let c = 0; c < GW; c++) {
+  const u = c / (GW - 1) - 0.5
+  UC.push(u)
+  S9.push(Math.sin(u * 9))
+  C9.push(Math.cos(u * 9))
+  S5.push(Math.sin(u * 5))
+  C5.push(Math.cos(u * 5))
+}
+for (let r = 0; r < GH; r++) {
+  const v = r / (GH - 1) - 0.5
+  VR.push(v)
+  S8.push(Math.sin(v * 8))
+  C8.push(Math.cos(v * 8))
+  S4.push(Math.sin(v * 4))
+  C4.push(Math.cos(v * 4))
+}
+for (let i = 0; i < GN; i++) {
+  const uv = (UC[gx[i]] + VR[gy[i]]) * 5
+  SUV.push(Math.sin(uv))
+  CUV.push(Math.cos(uv))
+}
 
 // I. Copper: raster bars breathe with the bass and sin scroller letters ride the hats.
 function* copper() {
   let gain = 1
   gain = yield []
   let glint = 0
+  const bars = [], glints = [], chars = [], out = []
+  for (let i = 0; i < NB; i++) {
+    const pts = []
+    for (let k = 0; k < 52; k++) pts.push(0)
+    bars.push({ k: "p", pts, fill: true, h: 0, s: 65, l: 40, a: 0.4 })
+  }
+  for (let i = 0; i < 8; i++) glints.push({ k: "c", x: 0, y: 0, r: 1, h: 0, s: 70, l: 62, a: 0 })
+  for (let i = 0; i < SCROLL.length; i++) chars.push({ k: "t", text: SCROLL[i], x: 0, y: 0, size: 18, h: 0, s: 55, l: 62, a: 0.78 })
   while (true) {
     const A = s.audio, W = s.w, H = s.h, U = Math.min(W, H) / 800
-    const out = []
     const t = s.t, calm = A.calm || 0, bass = A.bass || 0, kick = A.kick || 0
     const amp = (14 + bass * 34 + kick * 26) * U
     const hit = A.kickHit ? 1 : 0
@@ -56,35 +89,58 @@ function* copper() {
     glint *= 0.9
     const hue = (A.keyHue || 0) + 30
     const step = (H * 0.8) / (NB - 1)
+    const halfW = W * 0.43 * (1 - calm * 0.35)
+    const x0 = s.cx - halfW, dx = halfW / 6, q = 0.012 / U
+    const sn = (A.snare || 0) * 14 * U, ampO = amp * 0.18
+    const th = step * 0.34 * (0.5 + bass * 0.7 + kick * 0.3 + hit * 0.12)
+    const barA = (0.4 + bass * 0.18) * gain
+    const dphi = dx * q, cds = Math.cos(dphi), sds = Math.sin(dphi)
+    let n = 0
     for (let i = 0; i < NB; i++) {
       if (calm > 0.55 && i % 2) continue
-      const pos = i - (NB - 1) / 2
-      const yc = s.cy + pos * step + Math.sin(t * 1.3 + i * 0.55) * amp + (A.snare || 0) * 14 * U * (i % 2 ? 1 : -1)
-      const th = step * 0.34 * (0.5 + bass * 0.7 + kick * 0.3 + hit * 0.12)
-      const halfW = W * 0.43 * (1 - calm * 0.35)
-      const pts = []
+      const yc = s.cy + (i - (NB - 1) / 2) * step + Math.sin(t * 1.3 + i * 0.55) * amp + sn * (i % 2 ? 1 : -1)
+      const phi = x0 * q + t * 2 + i
+      let sv = Math.sin(phi), cv = Math.cos(phi)
+      const bar = bars[i], pts = bar.pts
       for (let k = 0; k <= 12; k++) {
-        const x = s.cx - halfW + (2 * halfW * k) / 12
-        pts.push(x, yc + Math.sin(x * 0.012 / U + t * 2 + i) * amp * 0.18)
+        const x = x0 + dx * k, off = sv * ampO
+        pts[k * 2] = x
+        pts[k * 2 + 1] = yc + off
+        pts[50 - k * 2] = x
+        pts[51 - k * 2] = yc + th + off
+        const ns = sv * cds + cv * sds
+        cv = cv * cds - sv * sds
+        sv = ns
       }
-      for (let k = 12; k >= 0; k--) {
-        const x = s.cx - halfW + (2 * halfW * k) / 12
-        pts.push(x, yc + th + Math.sin(x * 0.012 / U + t * 2 + i) * amp * 0.18)
-      }
-      out.push({ k: "p", pts, fill: true, h: hue + i * 13 + t * 18, s: 65, l: Math.min(60, 34 + (i % 4) * 5 + kick * 10), a: (0.4 + bass * 0.18) * gain })
+      bar.h = hue + i * 13 + t * 18
+      bar.l = Math.min(60, 34 + (i % 4) * 5 + kick * 10)
+      bar.a = barA
+      out[n++] = bar
     }
     if (glint > 0.05) for (let k = 0; k < 8; k++) {
       const gi = (k * 3 + (A.hats || 0)) % NB
-      out.push({ k: "c", x: s.cx + Math.cos(k * 2.4 + t) * W * 0.4, y: s.cy + (gi - (NB - 1) / 2) * step, r: (2 + glint * 4) * U, h: hue + 90, s: 70, l: 62, a: glint * 0.55 * gain })
+      const g = glints[k]
+      g.x = s.cx + Math.cos(k * 2.4 + t) * W * 0.4
+      g.y = s.cy + (gi - (NB - 1) / 2) * step
+      g.r = (2 + glint * 4) * U
+      g.h = hue + 90
+      g.a = glint * 0.55 * gain
+      out[n++] = g
     }
     const cw = 15 * U, total = SCROLL.length * cw, spd = 90 * U * (0.6 + (A.energy || 0) * 0.8)
     const off = (t * spd) % total, baseY = H * 0.86 + Math.sin(t * 0.8) * 6 * U
+    const size = 18 * U, cha = 0.78 * gain
     for (let i = 0; i < SCROLL.length; i++) {
-      const ch = SCROLL[i]
-      if (ch === " ") continue
-      const x = s.cx - total / 2 + (i * cw + off) % total
-      out.push({ k: "t", text: ch, x, y: baseY + Math.sin(i * 0.55 + t * 3.2) * 14 * U, size: 18 * U, h: hue + i * 6, s: 55, l: 62, a: 0.78 * gain })
+      if (SCROLL[i] === " ") continue
+      const o = chars[i]
+      o.x = s.cx - total / 2 + (i * cw + off) % total
+      o.y = baseY + Math.sin(i * 0.55 + t * 3.2) * 14 * U
+      o.size = size
+      o.h = hue + i * 6
+      o.a = cha
+      out[n++] = o
     }
+    out.length = n
     gain = yield out
   }
 }
@@ -94,9 +150,12 @@ function* tunnel() {
   let gain = 1
   gain = yield []
   let twist = 0, dir = 1, burst = 0
+  const dots = [], out = []
+  for (let i = 0; i < NT; i++) dots.push({ k: "c", x: 0, y: 0, r: 1, h: 0, s: 65, l: 40, a: 0.3 })
+  const ring = { k: "c", x: 0, y: 0, r: 1, fill: false, h: 0, s: 70, l: 60, a: 0, lw: 2 }
+  const core = { k: "c", x: 0, y: 0, r: 1, h: 0, s: 70, l: 50, a: 0.4 }
   while (true) {
     const A = s.audio, dt = Math.min(0.05, s.dt || 1 / 60), W = s.w, H = s.h, U = Math.min(W, H) / 800
-    const out = []
     const build = Math.max(0, Math.min(1, A.build || 0))
     if (A.snareHit) { dir = -dir; burst = 1 }
     twist += dt * (0.3 + build * 2.2 + (A.kick || 0) * 1.4) * dir
@@ -105,20 +164,44 @@ function* tunnel() {
     const spd = (0.3 + (A.energy || 0) * 0.55 + (A.kick || 0) * 0.55 + build * 0.9) * dt * (1 - calm * 0.5)
     const squeeze = 1 - build * 0.22 + bass * 0.12 + burst * 0.18
     const hue = (A.keyHue || 0) + 120
+    const rrK = U * 190 * squeeze, hat8 = (A.hat || 0) * 8
+    const xl = -W * 0.2, xr = W * 1.2, yt = -H * 0.2, yb = H * 1.2
+    let n = 0
     for (let i = 0; i < NT; i++) {
       if (calm > 0.6 && i % 2) continue
       let d = tD[i] - spd * tJ[i]
       if (d < 0.12) d += 1.1
       tD[i] = d
-      const k = 0.36 / (d + 0.05), rr = k * U * 190 * squeeze
+      const rr = (0.36 / (d + 0.05)) * rrK
       const a = tA[i] + twist + d * 1.7
       const x = s.cx + Math.cos(a) * rr, y = s.cy + Math.sin(a) * rr * 0.9
-      if (x < -W * 0.2 || x > W * 1.2 || y < -H * 0.2 || y > H * 1.2) continue
+      if (x < xl || x > xr || y < yt || y > yb) continue
       const near = Math.max(0, Math.min(1, (0.55 - d) * 2.2))
-      out.push({ k: "c", x, y, r: (1.1 + near * 5.5 + bass * 2) * U, h: hue + a * 30 + near * 70, s: 65, l: Math.min(64, 36 + near * 22 + (A.hat || 0) * 8), a: (0.32 + near * 0.38) * gain })
+      const o = dots[i]
+      o.x = x
+      o.y = y
+      o.r = (1.1 + near * 5.5 + bass * 2) * U
+      o.h = hue + a * 30 + near * 70
+      o.l = Math.min(64, 36 + near * 22 + hat8)
+      o.a = (0.32 + near * 0.38) * gain
+      out[n++] = o
     }
-    if (burst > 0.05) out.push({ k: "c", x: s.cx, y: s.cy, r: (40 + (1 - burst) * 300) * U, fill: false, h: hue + 180, s: 70, l: 60, a: burst * 0.5 * gain, lw: 2 + burst * 3 })
-    out.push({ k: "c", x: s.cx, y: s.cy, r: (20 + (A.kick || 0) * 40) * U, h: hue + 40, s: 70, l: 50, a: 0.4 * gain })
+    if (burst > 0.05) {
+      ring.x = s.cx
+      ring.y = s.cy
+      ring.r = (40 + (1 - burst) * 300) * U
+      ring.h = hue + 180
+      ring.a = burst * 0.5 * gain
+      ring.lw = 2 + burst * 3
+      out[n++] = ring
+    }
+    core.x = s.cx
+    core.y = s.cy
+    core.r = (20 + (A.kick || 0) * 40) * U
+    core.h = hue + 40
+    core.a = 0.4 * gain
+    out[n++] = core
+    out.length = n
     gain = yield out
   }
 }
@@ -128,9 +211,15 @@ function* vectors() {
   let gain = 1
   gain = yield []
   let spin = 0, flip = 1, glint = 0
+  const trails = [], heads = [], edges = [], ex = [], ey = [], out = []
+  for (let i = 0; i < NV; i++) {
+    trails.push({ k: "p", pts: [0, 0, 0, 0, 0, 0], close: false, h: 0, s: 65, l: 40, a: 0.4, lw: 1 })
+    heads.push({ k: "c", x: 0, y: 0, r: 1, h: 0, s: 62, l: 44, a: 0.5 })
+  }
+  for (let i = 0; i < 24; i++) edges.push({ k: "l", x1: 0, y1: 0, x2: 0, y2: 0, h: 0, s: 62, l: 46, a: 0.5, lw: 1 })
+  for (let i = 0; i < 8; i++) { ex.push(0); ey.push(0) }
   while (true) {
     const A = s.audio, dt = Math.min(0.05, s.dt || 1 / 60), W = s.w, H = s.h, U = Math.min(W, H) / 800
-    const out = []
     const t = s.t, build = Math.max(0, Math.min(1, A.build || 0))
     const calm = A.calm || 0, kick = A.kick || 0, bass = A.bass || 0
     if (A.snareHit) { flip = -flip; glint = 1 }
@@ -139,23 +228,35 @@ function* vectors() {
     const hue = (A.keyHue || 0) + 190
     const scale = (1 + kick * 0.18 + bass * 0.1 - build * 0.15 + (A.dropAmt || 0) * 0.4) * U
     const unit = Math.min(W, H)
+    let n = 0
     for (let i = 0; i < NV; i++) {
       const rr = vR[i] * unit * (1 - build * 0.18) * (1 + kick * 0.08)
       const spd = vS[i] * flip * (0.7 + build * 0.5) * (1 - calm * 0.5)
-      const pts = []
+      const tr = trails[i], pts = tr.pts
       let x0 = 0, y0 = 0
       for (let e = 2; e >= 0; e--) {
         const tt = t - e * 0.07
         const a = vA[i] + tt * spd
         const x = s.cx + Math.cos(a) * rr
         const y = s.cy + Math.sin(a * 1.3 + vY[i]) * rr * 0.48 + Math.sin(tt * 1.7 + vP[i]) * 24 * U
-        pts.push(x, y)
+        pts[(2 - e) * 2] = x
+        pts[(2 - e) * 2 + 1] = y
         if (e === 0) { x0 = x; y0 = y }
       }
-      out.push({ k: "p", pts, close: false, h: hue + i * 9, s: 65, l: Math.min(62, 40 + vSz[i] * 2 + kick * 8), a: (0.4 - calm * 0.16) * gain, lw: 1.4 * U })
-      out.push({ k: "c", x: x0, y: y0, r: vSz[i] * scale * (1 + kick * 0.3), h: hue + i * 9 + glint * 60, s: 62, l: Math.min(64, 44 + vSz[i] * 2.5 + kick * 8 + glint * 8), a: (0.52 + glint * 0.2) * gain })
+      tr.h = hue + i * 9
+      tr.l = Math.min(62, 40 + vSz[i] * 2 + kick * 8)
+      tr.a = (0.4 - calm * 0.16) * gain
+      tr.lw = 1.4 * U
+      out[n++] = tr
+      const hd = heads[i]
+      hd.x = x0
+      hd.y = y0
+      hd.r = vSz[i] * scale * (1 + kick * 0.3)
+      hd.h = hue + i * 9 + glint * 60
+      hd.l = Math.min(64, 44 + vSz[i] * 2.5 + kick * 8 + glint * 8)
+      hd.a = (0.52 + glint * 0.2) * gain
+      out[n++] = hd
     }
-    const ex = [], ey = []
     for (let pass = 0; pass < 2; pass++) {
       const yaw = spin - pass * 0.22, cy = Math.cos(yaw), sy = Math.sin(yaw)
       const pit = spin * 0.7, cp = Math.cos(pit), sp = Math.sin(pit)
@@ -170,9 +271,19 @@ function* vectors() {
       }
       for (let i = 0; i < EDGES.length; i++) {
         const e = EDGES[i]
-        out.push({ k: "l", x1: ex[e[0]], y1: ey[e[0]], x2: ex[e[1]], y2: ey[e[1]], h: hue + 40 + pass * 25, s: 62, l: Math.min(58, 46 - pass * 8 + kick * 8), a: (0.55 - pass * 0.28) * gain, lw: (1.4 - pass * 0.5) * U })
+        const ln = edges[pass * 12 + i]
+        ln.x1 = ex[e[0]]
+        ln.y1 = ey[e[0]]
+        ln.x2 = ex[e[1]]
+        ln.y2 = ey[e[1]]
+        ln.h = hue + 40 + pass * 25
+        ln.l = Math.min(58, 46 - pass * 8 + kick * 8)
+        ln.a = (0.55 - pass * 0.28) * gain
+        ln.lw = (1.4 - pass * 0.5) * U
+        out[n++] = ln
       }
     }
+    out.length = n
     gain = yield out
   }
 }
@@ -181,14 +292,30 @@ function* vectors() {
 function* finale() {
   let gain = 1
   gain = yield []
-  const lx = [], ly = [], lh = []
-  for (let i = 0; i < GN; i++) { lx.push(0); ly.push(0); lh.push(0) }
+  const bars = [], dots = [], lat = [], rowsP = [], colsP = [], echoes = [], out = []
+  for (let i = 0; i < 7; i++) {
+    const pts = []
+    for (let k = 0; k < 36; k++) pts.push(0)
+    bars.push({ k: "p", pts, fill: true, h: 0, s: 65, l: 40, a: 0.2 })
+  }
+  for (let i = 0; i < 60; i++) dots.push({ k: "c", x: 0, y: 0, r: 1, h: 0, s: 65, l: 40, a: 0.2 })
+  for (let i = 0; i < GN; i++) lat.push({ k: "c", x: 0, y: 0, r: 1, h: 0, s: 68, l: 40, a: 0.3 })
+  for (let i = 0; i < GH; i++) {
+    const pts = []
+    for (let k = 0; k < GW * 2; k++) pts.push(0)
+    rowsP.push({ k: "p", pts, close: false, h: 0, s: 60, l: 36, a: 0.16, lw: 1 })
+  }
+  for (let i = 0; i < GW; i++) {
+    const pts = []
+    for (let k = 0; k < GH * 2; k++) pts.push(0)
+    colsP.push({ k: "p", pts, close: false, h: 0, s: 62, l: 34, a: 0.12, lw: 1 })
+  }
+  for (let i = 0; i < 10; i++) echoes.push({ k: "c", x: 0, y: 0, r: 1, h: 0, s: 62, l: 44, a: 0.3 })
   const fd = []
   for (let i = 0; i < 60; i++) fd.push(0.08 + rnd() * 1.1)
   let jolt = 0
   while (true) {
     const A = s.audio, dt = Math.min(0.05, s.dt || 1 / 60), W = s.w, H = s.h, U = Math.min(W, H) / 800
-    const out = []
     const t = s.t, build = Math.max(0, Math.min(1, A.build || 0))
     const calm = A.calm || 0, kick = A.kick || 0, bass = A.bass || 0
     if (A.snareHit) jolt = 1
@@ -196,65 +323,115 @@ function* finale() {
     const hue = (A.keyHue || 0) + 40
     const pulse = 1 + kick * 0.35 + (A.dropAmt || 0) * 0.5
     const amp = (18 + kick * 26 + bass * 14 + build * 18) * (1 - calm * 0.35)
+    let n = 0
+    const bx0 = s.cx - W * 0.4, bdx = W * 0.1, bq = 0.01 / U
+    const bth = (8 + bass * 16) * U, bamp = 8 * U
+    const bdphi = bdx * bq, bcds = Math.cos(bdphi), bsds = Math.sin(bdphi)
+    const barA = (0.2 + bass * 0.14) * gain
     for (let i = 0; i < 7; i++) {
       const yc = H * (0.2 + i * 0.1) + Math.sin(t * 1.1 + i) * amp * 0.2
-      const pts = []
+      const phi = bx0 * bq + t * 2 + i
+      let sv = Math.sin(phi), cv = Math.cos(phi)
+      const bar = bars[i], pts = bar.pts
       for (let k = 0; k <= 8; k++) {
-        const x = s.cx - W * 0.4 + W * 0.8 * k / 8
-        pts.push(x, yc + Math.sin(x * 0.01 / U + t * 2 + i) * 8 * U)
+        const x = bx0 + bdx * k, off = sv * bamp
+        pts[k * 2] = x
+        pts[k * 2 + 1] = yc + off
+        pts[34 - k * 2] = x
+        pts[35 - k * 2] = yc + bth + off
+        const ns = sv * bcds + cv * bsds
+        cv = cv * bcds - sv * bsds
+        sv = ns
       }
-      for (let k = 8; k >= 0; k--) {
-        const x = s.cx - W * 0.4 + W * 0.8 * k / 8
-        pts.push(x, yc + (8 + bass * 16) * U + Math.sin(x * 0.01 / U + t * 2 + i) * 8 * U)
-      }
-      out.push({ k: "p", pts, fill: true, h: hue + i * 16 + t * 10, s: 65, l: Math.min(60, 36 + i * 3 + kick * 8), a: (0.2 + bass * 0.14) * gain })
+      bar.h = hue + i * 16 + t * 10
+      bar.l = Math.min(60, 36 + i * 3 + kick * 8)
+      bar.a = barA
+      out[n++] = bar
     }
     const spd = (0.3 + (A.energy || 0) * 0.5 + build * 0.7) * dt
+    const rrK = U * 210 * (1 - build * 0.2), tw = t * (0.4 + build)
+    const xl = -W * 0.15, xr = W * 1.15, yt = -H * 0.15, yb = H * 1.15
     for (let i = 0; i < 60; i++) {
       let d = fd[i] - spd
       if (d < 0.1) d += 1.1
       fd[i] = d
-      const k = 0.3 / (d + 0.06), rr = k * U * 210 * (1 - build * 0.2)
-      const a = tA[i] + t * (0.4 + build) + d * 1.6
+      const rr = (0.3 / (d + 0.06)) * rrK
+      const a = tA[i] + tw + d * 1.6
       const x = s.cx + Math.cos(a) * rr, y = s.cy + Math.sin(a) * rr
-      if (x < -W * 0.15 || x > W * 1.15 || y < -H * 0.15 || y > H * 1.15) continue
+      if (x < xl || x > xr || y < yt || y > yb) continue
       const near = Math.max(0, Math.min(1, (0.6 - d) * 2))
-      out.push({ k: "c", x, y, r: (1 + near * 4) * U, h: hue + a * 25 + near * 60, s: 65, l: Math.min(62, 38 + near * 20), a: (0.24 + near * 0.24) * gain })
+      const o = dots[i]
+      o.x = x
+      o.y = y
+      o.r = (1 + near * 4) * U
+      o.h = hue + a * 25 + near * 60
+      o.l = Math.min(62, 38 + near * 20)
+      o.a = (0.24 + near * 0.24) * gain
+      out[n++] = o
     }
+    const c1 = Math.cos(t * 1.5 + jolt * 2), s1 = Math.sin(t * 1.5 + jolt * 2)
+    const c2 = Math.cos(t * 1.2), s2 = Math.sin(t * 1.2)
+    const c3 = Math.cos(t * 2.1), s3 = Math.sin(t * 2.1)
+    const c4 = Math.cos(t * 0.8), s4 = Math.sin(t * 0.8)
+    const c5 = Math.cos(t * 0.9), s5 = Math.sin(t * 0.9)
+    const latA = (0.32 + build * 0.22) * gain
+    const wobK = amp * 0.35, ywK = amp * 0.28
+    const uw = W * 0.84, vh = H * 0.72
+    const rBase = 1.6 + bass * 2.6 + kick * 2.4, lBase = 36 + kick * 6
     for (let i = 0; i < GN; i++) {
-      const u = gx[i] / (GW - 1) - 0.5, v = gy[i] / (GH - 1) - 0.5
-      const pl = Math.sin(u * 9 + t * 1.5 + jolt * 2) + Math.cos(v * 8 - t * 1.2) + Math.sin((u + v) * 5 + t * 2.1)
-      const wob = Math.sin(t * 0.8 + v * 4) * amp * 0.35
-      const x = s.cx + u * W * 0.84 + wob
-      const y = s.cy + v * H * 0.72 + Math.cos(t * 0.9 + u * 5) * amp * 0.28
-      lx[i] = x
-      ly[i] = y
-      lh[i] = hue + pl * 22 + gx[i] * 2.5 - gy[i] * 2
-      out.push({ k: "c", x, y, r: (1.6 + bass * 2.6 + kick * 2.4 + (pl + 3) * 0.45) * U * pulse, h: lh[i], s: 68, l: Math.max(30, Math.min(64, 36 + (pl + 3) * 4.5 + kick * 6)), a: (0.32 + build * 0.22) * gain })
+      const c = gx[i], r = gy[i]
+      const pl = S9[c] * c1 + C9[c] * s1 + C8[r] * c2 + S8[r] * s2 + SUV[i] * c3 + CUV[i] * s3
+      const o = lat[i]
+      o.x = s.cx + UC[c] * uw + (S4[r] * c4 + C4[r] * s4) * wobK
+      o.y = s.cy + VR[r] * vh + (C5[c] * c5 - S5[c] * s5) * ywK
+      o.r = (rBase + (pl + 3) * 0.45) * U * pulse
+      o.h = hue + pl * 22 + c * 2.5 - r * 2
+      o.l = Math.max(30, Math.min(64, lBase + (pl + 3) * 4.5))
+      o.a = latA
+      out[n++] = o
     }
     for (let row = 0; row < GH; row++) {
-      const pts = []
+      const pl = rowsP[row], pts = pl.pts
       for (let col = 0; col < GW; col++) {
-        const i = row * GW + col
-        pts.push(lx[i], ly[i])
+        const o = lat[row * GW + col]
+        pts[col * 2] = o.x
+        pts[col * 2 + 1] = o.y
       }
-      out.push({ k: "p", pts, close: false, h: hue + row * 4, s: 60, l: Math.min(58, 34 + row * 2), a: (0.16 + build * 0.14) * gain, lw: 0.8 * U })
+      pl.h = hue + row * 4
+      pl.l = Math.min(58, 34 + row * 2)
+      pl.a = (0.16 + build * 0.14) * gain
+      pl.lw = 0.8 * U
+      out[n++] = pl
     }
     for (let col = 0; col < GW; col++) {
-      const pts = []
+      const pl = colsP[col], pts = pl.pts
       for (let row = 0; row < GH; row++) {
-        const i = row * GW + col
-        pts.push(lx[i], ly[i])
+        const o = lat[row * GW + col]
+        pts[row * 2] = o.x
+        pts[row * 2 + 1] = o.y
       }
-      out.push({ k: "p", pts, close: false, h: hue + col * 3 + 60, s: 62, l: Math.min(56, 32 + col * 1.6), a: (0.12 + build * 0.1) * gain, lw: 0.7 * U })
+      pl.h = hue + col * 3 + 60
+      pl.l = Math.min(56, 32 + col * 1.6)
+      pl.a = (0.12 + build * 0.1) * gain
+      pl.lw = 0.7 * U
+      out[n++] = pl
     }
+    const er = Math.min(W, H) * (0.9 - build * 0.2)
     for (let i = 0; i < 5; i++) {
-      const rr = vR[i] * Math.min(W, H) * (0.9 - build * 0.2)
+      const rr = vR[i] * er
       for (let e = 1; e >= 0; e--) {
         const a = vA[i] + (t - e * 0.08) * vS[i] * 1.2
-        out.push({ k: "c", x: s.cx + Math.cos(a) * rr, y: s.cy + Math.sin(a * 1.3 + vY[i]) * rr * 0.5, r: vSz[i] * 0.8 * U, h: hue + 80 + i * 12, s: 62, l: Math.min(62, 40 + e * 6 + kick * 8), a: (0.38 - e * 0.14) * gain })
+        const o = echoes[i * 2 + (1 - e)]
+        o.x = s.cx + Math.cos(a) * rr
+        o.y = s.cy + Math.sin(a * 1.3 + vY[i]) * rr * 0.5
+        o.r = vSz[i] * 0.8 * U
+        o.h = hue + 80 + i * 12
+        o.l = Math.min(62, 40 + e * 6 + kick * 8)
+        o.a = (0.38 - e * 0.14) * gain
+        out[n++] = o
       }
     }
+    out.length = n
     gain = yield out
   }
 }
@@ -263,6 +440,12 @@ const ROUTINES = [copper, tunnel, vectors, finale]
 const makeGen = (p) => { const g = ROUTINES[p](); g.next(); return g }
 let phase = clampP(s.entry)
 let gen = makeGen(phase), fromGen = null, mix = 1, halfBar = 120 / 124
+const fx = {
+  trail: 0.8, zoom: 1, spin: 0, hue: 0.2, mirror: 0,
+  phase: 0, phases: PHASES.length, title: PHASES[0], titleFx: "rise", titleHue: 0,
+  react: { punch: 0.8, slice: 0.5, sparkle: 0.8, shake: 0.4, tint: 0.8 },
+}
+const mixOut = []
 while (true) {
   const A = s.audio
   const dt = Math.min(0.05, s.dt || 1 / 60)
@@ -273,24 +456,32 @@ while (true) {
     mix = 0
     halfBar = 120 / ((A.bpm && A.bpm > 30) ? A.bpm : 124)
   }
-  const out = []
+  let out
   if (fromGen && mix < 1) {
     mix = Math.min(1, mix + dt / halfBar)
     const e = mix * mix * (3 - 2 * mix)
-    for (const o of fromGen.next(1 - e).value) out.push(o)
-    for (const o of gen.next(e).value) out.push(o)
+    const a = fromGen.next(1 - e).value, b = gen.next(e).value
+    mixOut.length = 0
+    for (let i = 0; i < a.length; i++) mixOut.push(a[i])
+    for (let i = 0; i < b.length; i++) mixOut.push(b[i])
+    out = mixOut
     if (mix >= 1) fromGen = null
   } else {
-    for (const o of gen.next(1).value) out.push(o)
+    out = gen.next(1).value
   }
   const calm = A.calm || 0, build = Math.max(0, Math.min(1, A.build || 0)), drop = A.dropAmt || 0
   let trail = phase === 0 ? 0.8 : phase === 1 ? 0.83 : phase === 2 ? 0.78 : 0.86
   trail = Math.min(0.94, trail + calm * 0.06 + build * 0.03)
-  s = await frame(out, {
-    trail, zoom: 1 + (A.kick || 0) * 0.006 + build * 0.008 + drop * 0.01 - calm * 0.004,
-    spin: phase === 1 ? 0.002 * (1 + build) : phase === 3 ? 0.001 : 0, hue: 0.2 + (A.high || 0) * 0.5, mirror: 0,
-    phase, phases: PHASES.length, title: PHASES[phase],
-    titleFx: phase === 3 ? "split" : "rise", titleHue: (A.keyHue || 0) + 120,
-    react: { punch: 0.8 + (A.kick || 0) * 0.4, slice: 0.5, sparkle: 0.8 + (A.high || 0) * 0.8, shake: 0.4 + build * 0.6, tint: 0.8 },
-  })
+  fx.trail = trail
+  fx.zoom = 1 + (A.kick || 0) * 0.006 + build * 0.008 + drop * 0.01 - calm * 0.004
+  fx.spin = phase === 1 ? 0.002 * (1 + build) : phase === 3 ? 0.001 : 0
+  fx.hue = 0.2 + (A.high || 0) * 0.5
+  fx.phase = phase
+  fx.title = PHASES[phase]
+  fx.titleFx = phase === 3 ? "split" : "rise"
+  fx.titleHue = (A.keyHue || 0) + 120
+  fx.react.punch = 0.8 + (A.kick || 0) * 0.4
+  fx.react.sparkle = 0.8 + (A.high || 0) * 0.8
+  fx.react.shake = 0.4 + build * 0.6
+  s = await frame(out, fx)
 }
