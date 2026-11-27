@@ -2,6 +2,7 @@
   "name": "tranceengine",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "A music video directed by the music: sandboxed Psychoscript scenes, a song mapper and a planned edit that lands on every drop.",
   "type": "module",
   "scripts": {
