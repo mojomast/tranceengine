@@ -33,6 +33,9 @@
     { "file": "orbit-garden.js", "tier": "flourish", "by": "Haiku agent" },
     { "file": "lava-lamp.js", "tier": "flourish", "by": "Haiku agent" },
     { "file": "lissajous-bloom.js", "tier": "flourish", "by": "Claude" },
-    { "file": "hypno-spiral.js", "tier": "flourish", "by": "Haiku agent" }
+    { "file": "hypno-spiral.js", "tier": "flourish", "by": "Haiku agent" },
+    { "file": "truchet-weave.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "oscilloscope-xy.js", "tier": "flourish", "by": "bee (deepseek-v4.1-flash)" },
+    { "file": "sunflower-spiral.js", "tier": "flourish", "by": "bee (hy4-flash)" }
   ]
 }
