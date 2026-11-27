@@ -34,9 +34,42 @@ The report is JSON on stdout; the process exits 0 on pass.
 bun tools/eval-mapper.mjs
 ```
 
-Decodes the three bundled songs with `ffmpeg` and maps them. For the two synthetic songs it compares against
-`assets/truth/*.truth.json`: tempo, downbeat hit rate, onset precision and recall per drum, section boundaries and
-labels, and drop timing. Run it after any change to `mapper.js`. To regenerate the test songs (and their truth):
+Decodes every bundled song with `ffmpeg` and maps it. Every `assets/truth/*.truth.json` song is scored after adding
+`offset_s` (default 0) to all its times; the real song has no truth file and is only printed. Run it after any change
+to `mapper.js`.
+
+Scoring is mir_eval-style and one-to-one: a detection can explain at most one true event and vice versa. Onsets use a
+**50 ms** window (`ONSET_WINDOW = 0.05`), beats and downbeats a **70 ms** window (`BEAT_WINDOW = 0.07`), with 1e-9 of
+slack at the boundary. The human-readable report shows precision, recall and F for each drum; all scores are
+higher-is-better numbers in 0..1 (0, never NaN, for empty lists):
+
+| metric | definition |
+|---|---|
+| `tempoOk` | 1 when the relative BPM error is below 4%, else 0 |
+| `downbeatHit` | share of true bar starts with a detected downbeat within 70 ms; uses `truth.downbeats` when present, else the bar grid |
+| `beatF` | F of detected beats vs `truth.beats` when present, else four beats per bar of that grid (70 ms) |
+| `kickF`, `kickP`, `kickR` | F, precision and recall of kick onsets vs `truth.events.kick` (50 ms) |
+| `snareF` | F of snare onsets vs `events.snare` + `events.roll` (50 ms) |
+| `hatF` | F of hat onsets vs `truth.events.hat` (50 ms) |
+| `sectionHit` | share of true section starts after 0 with a detected section start within half a bar |
+| `dropHit` | share of true drops with a detected drop within 0.25 s |
+
+Flags (the scoring helpers live in the Node-compatible `tools/eval-lib.mjs`):
+
+```sh
+bun tools/eval-mapper.mjs --json
+bun tools/eval-mapper.mjs --baseline baseline.json [--tolerance 0.02]
+bun tools/eval-mapper.mjs --write-baseline baseline.json
+```
+
+- `--json` makes stdout a single object `{ "songs": { "<name>": { bpm, ms, ...metrics } } }` and nothing else.
+- `--baseline FILE` compares every baseline metric against the new score; `--tolerance N` sets the allowed drop
+  (default 0.02). Each drop is printed and the exit code is 1 if there is one, 2 if the file is missing or unreadable
+  (fail closed), otherwise 0. A missing, non-finite or dropped score counts as a regression.
+- `--write-baseline FILE` writes `{ "<name>": { "<metric>": value } }` for the songs with truth, to use as a baseline
+  later.
+
+To regenerate the test songs (and their truth):
 
 ```sh
 python3 tools/synth-test-songs.py     # needs numpy, scipy, ffmpeg
