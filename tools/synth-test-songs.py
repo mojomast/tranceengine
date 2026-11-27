@@ -1,5 +1,5 @@
 """Synthesize test songs with known structure (ground truth written alongside)."""
-import json, sys
+import json, os, shutil, subprocess, sys, tempfile
 import numpy as np
 from scipy.signal import butter, sosfilt
 
@@ -192,17 +192,121 @@ def breakneck():
              "drops": [round(T.at(a), 3) for n, a, b in sections if n == "drop"], "events": T.events}
     return x, truth
 
-if __name__ == "__main__":
-    import subprocess, os
-    ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    import tempfile; TMP = tempfile.mkdtemp()
-    for name, fn in [("slow-burn", slow_burn), ("breakneck", breakneck)]:
-        x, truth = fn()
-        wav = os.path.join(TMP, name + ".wav")
-        import wave
+def trance138():
+    """138 BPM trance: intro 8, breakdown 8, build 8, drop 16, breakdown 8, build 4, drop 16, outro 8."""
+    global rng
+    rng = np.random.default_rng(138)
+    T = Track(138, 76)
+    sections = [("intro", 0, 8), ("breakdown", 8, 16), ("build", 16, 24), ("drop", 24, 40),
+                ("breakdown", 40, 48), ("build", 48, 52), ("drop", 52, 68), ("outro", 68, 76)]
+    chords = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]]  # Am F C G
+    roots = [33, 29, 36, 31]  # A1 around 55 Hz, overlapping the kick
+    kicks = []
+    bass_times = []
+    for name, b0, b1 in sections:
+        for bar in range(b0, b1):
+            ch = chords[bar % 4]
+            root = roots[bar % 4]
+            if name == "breakdown":
+                T.add("music", pad([note(m) for m in ch], T.bar, cutoff=700, attack=0.5), T.at(bar), 0.65)
+                for i, m in enumerate([72, 76, 79, 84]):
+                    T.add("music", bell(note(m + (bar % 2))), T.at(bar, i + 0.5), 0.3)
+            elif name == "drop":
+                T.add("music", pad([note(m) for m in ch], T.bar, cutoff=1600, attack=0.05), T.at(bar), 0.55)
+            else:
+                T.add("music", pad([note(m) for m in ch], T.bar, cutoff=900, attack=0.3), T.at(bar), 0.6)
+
+            if name in ("intro", "drop", "outro") or (name == "build" and bar < b1 - 1):
+                for b in range(4):
+                    tm = T.at(bar, b)
+                    T.hit("kick", kick(f0=150, f1=50, decay=0.28), tm)
+                    kicks.append(tm)
+
+            if name == "drop":
+                for b in (1, 3):
+                    T.hit("snare", clap(), T.at(bar, b), 0.85)
+                for h in range(16):
+                    T.hit("hat", hat(0.02), T.at(bar, h * 0.25), 0.3)
+                for b in range(4):
+                    T.hit("hat", hat(open_=True), T.at(bar, b + 0.5), 0.25)
+            elif name in ("intro", "outro"):
+                for b in range(4):
+                    T.hit("hat", hat(open_=True), T.at(bar, b + 0.5), 0.22)
+
+            if (name == "breakdown" and b0 == 8) or name in ("build", "drop"):
+                for b in range(4):
+                    tm = T.at(bar, b + 0.5)
+                    T.add("bass", sub808(note(root), 0.2), tm, 0.9)
+                    bass_times.append(round(tm, 4))
+
+            if name == "build":
+                length, k = b1 - b0, bar - b0
+                div = 1 if k < length / 2 else 2 if k < length - 1 else 4
+                for r in range(4 * div):
+                    T.hit("roll", snare(0.06, 220), T.at(bar, r / div),
+                          0.3 + 0.6 * (k * 4 * div + r) / (length * 4 * div))
+        if name == "build":
+            T.add("fx", riser((b1 - b0) * T.bar, 400, 11000), T.at(b0), 0.9)
+        if name == "drop":
+            T.add("fx", impact(), T.at(b0), 1.0)
+
+    x = T.render(kicks)
+    events = {k: sorted(v) for k, v in T.events.items()}
+    events["bass"] = sorted(bass_times)
+    beats = [round(T.at(bar, b), 4) for bar in range(76) for b in range(4)]
+    downbeats = [round(T.at(bar), 4) for bar in range(76)]
+    truth = {"bpm": 138, "bar": T.bar,
+             "sections": [{"name": n, "start": round(T.at(a), 3), "end": round(T.at(b), 3)} for n, a, b in sections],
+             "drops": [round(T.at(a), 3) for n, a, b in sections if n == "drop"],
+             "events": events, "beats": beats, "downbeats": downbeats, "offset_s": 0}
+    return x, truth
+
+
+def ffmpeg_exe():
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        raise SystemExit("ffmpeg not found: install ffmpeg or the imageio-ffmpeg package")
+
+
+def write_mp3(x, path, exe):
+    import wave
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = os.path.join(tmp, "song.wav")
         pcm = (np.stack([x, x], 1) * 32767).astype(np.int16)
         with wave.open(wav, "wb") as w:
-            w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR); w.writeframes(pcm.tobytes())
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav, "-codec:a", "libmp3lame", "-b:a", "160k", os.path.join(ROOT, "assets", "audio", name + ".mp3")], check=True)
-        json.dump(truth, open(os.path.join(ROOT, "assets", "truth", name + ".truth.json"), "w"), indent=1)
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(SR)
+            w.writeframes(pcm.tobytes())
+        subprocess.run([exe, "-v", "error", "-y", "-i", wav, "-codec:a", "libmp3lame",
+                        "-b:a", "160k", path], check=True)
+
+
+if __name__ == "__main__":
+    import argparse
+    ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    songs = [("slow-burn", slow_burn), ("breakneck", breakneck), ("trance138", trance138)]
+    ap = argparse.ArgumentParser(description="Synthesize test songs with ground truth.")
+    ap.add_argument("--only", choices=[n for n, _ in songs], help="generate a single song")
+    ap.add_argument("--out-dir", default=os.path.join(ROOT, "assets"), help="root for audio/ and truth/")
+    ap.add_argument("--truth-only", action="store_true", help="write only truth JSON, no audio")
+    args = ap.parse_args()
+    chosen = [(n, f) for n, f in songs if args.only is None or n == args.only]
+    audio_dir = os.path.join(args.out_dir, "audio")
+    truth_dir = os.path.join(args.out_dir, "truth")
+    os.makedirs(truth_dir, exist_ok=True)
+    exe = None
+    if not args.truth_only:
+        os.makedirs(audio_dir, exist_ok=True)
+        exe = ffmpeg_exe()
+    for name, fn in chosen:
+        x, truth = fn()
+        json.dump(truth, open(os.path.join(truth_dir, name + ".truth.json"), "w"), indent=1)
+        if not args.truth_only:
+            write_mp3(x, os.path.join(audio_dir, name + ".mp3"), exe)
         print(name, f"{len(x) / SR:.1f}s", "drops at", truth["drops"])
