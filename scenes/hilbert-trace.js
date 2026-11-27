@@ -1,12 +1,12 @@
 // name: Hilbert trace
 // Style: generative plotter art after Hilbert's space-filling curve - one light pen
-// crawling an order-5 lattice (order 4 on phones) as a single glowing polyline.
-// Psychoscript: generator choreography, each actor is a function* coroutine stepped
-// once per frame; bar cues swap its routine (direction and orientation) and a snare
-// spawns a catch-up echo walker that draws the parallel offset copy.
+// crawling an order-5 lattice (order 4 on phones), drawn as a single glowing polyline.
+// Psychoscript: generator choreography - the pen is a function* coroutine advanced
+// once per frame, and bar cues swap its routine (direction and lattice orientation).
+// A snare forks a parallel offset copy of the plot.
 // Reactions: kick/build/toDrop/drop speed the crawl, snareHit adds the offset copy,
-// hatHit drops glints at the head, bass sets stroke weight, keyHue walks the hue,
-// calm slows and thins, and a completed order fades out before the next one starts.
+// hatHit drops glints at the head, bass sets stroke weight, keyHue walks the hue
+// along the curve, calm slows and thins, and a completed order fades before the next.
 let s = await frame([])
 const TAU = Math.PI * 2
 const mulberry32 = (a) => () => {
@@ -18,7 +18,8 @@ const mulberry32 = (a) => () => {
 }
 const rnd = mulberry32(0x48545243)
 
-// One function* actor per curve: it yields Hilbert indices and is pulled by the loop.
+// One function* actor per trace: it yields Hilbert indices and the loop pulls
+// a few per frame. The reverse routine walks the same lattice backwards.
 function* hilbertWalker(len, dir) {
   if (dir > 0) {
     for (let i = 0; i < len; i++) yield i
@@ -27,8 +28,8 @@ function* hilbertWalker(len, dir) {
   }
 }
 
-// Static lattice geometry, built once: the classic d2xy rotation, normalised to a
-// unit square and replicated in four orientations so a reset costs no maths.
+// Static lattice: the classic d2xy rotation, normalised to a unit square and
+// stored in four orientations, so plotting a point is one multiply-add per axis.
 function buildOrder(ord) {
   const n = 1 << ord, N = n * n
   const xs = [], ys = []
@@ -61,11 +62,12 @@ function buildOrder(ord) {
       px.push(lx * c - ly * sn)
       py.push(lx * sn + ly * c)
     }
-    vars.push({ px, py })
+    vars.push({ px: px, py: py })
   }
-  return { n: N, vars }
+  return { n: N, vars: vars }
 }
 
+const BANDS = 6
 const span0 = Math.min(s.w, s.h)
 const orders = span0 < 560 ? [4] : [5, 4]
 const geo = []
@@ -78,20 +80,45 @@ let routine = 0
 let nextDir = 1
 let nextVariant = Math.floor(rnd() * 4)
 let gen = hilbertWalker(geo[0].n, dir)
+let R = 0
 let seq = []
+let bands = []
 let acc = 0
 let fading = false
 let fadeT = 0
 let echo = null
 let lastBar = typeof s.audio.bar === "number" ? s.audio.bar : 0
+let lastSpan = 0, lastCx = 0, lastCy = 0
+let headX = 0, headY = 0
 const glints = []
 let glintAt = 0
 for (let i = 0; i < 12; i++) glints.push({ life: 0, x: 0, y: 0, h: 0, r: 0 })
 
-const BANDS = 6
+// Start a fresh curve: fix its radius (so the plotted points never move) and
+// clear the per-band polylines. Also used when the drawing area changes.
+function startCurve() {
+  const span = Math.min(s.w, s.h)
+  R = span * 0.72
+  seq = []
+  bands = []
+  for (let b = 0; b < BANDS; b++) bands.push([])
+  lastSpan = span
+  lastCx = s.cx
+  lastCy = s.cy
+  acc = 0
+  fading = false
+  fadeT = 0
+  echo = null
+  headX = s.cx
+  headY = s.cy
+  gen = hilbertWalker(geo[oi].n, dir)
+}
+startCurve()
+
 while (true) {
   const A = s.audio, dt = s.dt > 0 ? s.dt : 1 / 60, out = []
   const span = Math.min(s.w, s.h), U = span / 800
+  if (span !== lastSpan || s.cx !== lastCx || s.cy !== lastCy) startCurve()
   const calm = typeof A.calm === "number" ? A.calm : 0
   const kick = A.kick || 0
   const bass = A.bass || 0
@@ -102,7 +129,7 @@ while (true) {
   const toDrop = typeof A.toDrop === "number" ? A.toDrop : 99
   const near = toDrop < 8 ? Math.max(0, 1 - toDrop / 8) : 0
 
-  // Bar cue: choose the next actor routine (orientation + direction).
+  // Bar cue: swap the walker routine (direction + next lattice orientation).
   if (bar !== lastBar) {
     lastBar = bar
     routine = (routine + 1) & 3
@@ -116,84 +143,75 @@ while (true) {
   acc += (len / dur) * dt
   let steps = Math.floor(acc)
   acc -= steps
-  if (steps > 64) steps = 64
-  if (!fading && seq.length === 0) steps = Math.max(steps, 4)
+  // Seed each new curve so the downbeat already reads as a Hilbert path.
+  if (!fading && seq.length === 0) steps = Math.floor(len * 0.24)
+  if (steps > 320) steps = 320
 
+  // Pull points from the actor and append them to the band polylines only once.
   if (!fading) {
     for (let k = 0; k < steps; k++) {
       const r = gen.next()
       if (r.done) break
-      seq.push(r.value)
+      const d = r.value
+      seq.push(d)
+      const x = s.cx + vx[d] * R, y = s.cy + vy[d] * R
+      let b = d * BANDS / len | 0
+      if (b >= BANDS) b = BANDS - 1
+      bands[b].push(x, y)
+      if (echo) echo.bands[b].push(x + echo.ox, y + echo.oy)
+      headX = x
+      headY = y
     }
     if (seq.length >= len) { fading = true; fadeT = 0 }
   } else {
     fadeT += dt
     if (fadeT > 0.55) {
-      fading = false
-      fadeT = 0
       oi = (oi + 1) % geo.length
       variant = nextVariant
       dir = nextDir
-      gen = hilbertWalker(geo[oi].n, dir)
-      seq = []
-      acc = 0
-      echo = null
+      startCurve()
     }
   }
 
-  // Snare: spawn a catch-up echo walker, a parallel offset copy of the trace.
+  // Snare: fork a parallel offset copy of everything plotted so far.
   if (A.snareHit && seq.length > 4 && !fading) {
-    const eg = hilbertWalker(len, dir > 0 ? -1 : 1)
-    const eseq = []
-    for (let k = 0; k < seq.length; k++) {
-      const r = eg.next()
-      if (r.done) break
-      eseq.push(r.value)
-    }
     const ang = rnd() * TAU
     const sep = span * (0.045 + 0.025 * (0.5 + 0.5 * Math.sin((A.snares || 0) * 1.7)))
-    echo = { gen: eg, seq: eseq, ox: Math.cos(ang) * sep, oy: Math.sin(ang) * sep, hue: keyHue + 145, life: 1 }
+    const ox = Math.cos(ang) * sep, oy = Math.sin(ang) * sep
+    const ob = []
+    for (let b = 0; b < BANDS; b++) {
+      const src = bands[b], dst = []
+      for (let k = 0; k < src.length; k += 2) dst.push(src[k] + ox, src[k + 1] + oy)
+      ob.push(dst)
+    }
+    echo = { bands: ob, ox: ox, oy: oy, hue: keyHue + 145, life: 1 }
   }
   if (echo) {
     echo.life -= dt / 0.55
-    for (let k = 0; k < steps; k++) {
-      const r = echo.gen.next()
-      if (r.done) break
-      echo.seq.push(r.value)
-    }
     if (echo.life <= 0 || fading) echo = null
   }
 
   const fade = fading ? Math.max(0, 1 - fadeT / 0.55) : 1
-  const R = span * (0.72 + kick * 0.02 + dropAmt * 0.02 - calm * 0.02)
-  const total = seq.length
   const hueDir = dir > 0 ? 1 : -1
   const lw = (1 + bass * 1.8 + kick * 1.6) * U * (1 - calm * 0.35)
-
   for (let b = 0; b < BANDS; b++) {
-    const i0 = Math.floor(total * b / BANDS)
-    const i1 = Math.floor(total * (b + 1) / BANDS)
-    if (i1 <= i0) continue
-    const pts = []
-    for (let k = i0; k < i1; k++) {
-      const d = seq[k]
-      pts.push(s.cx + vx[d] * R, s.cy + vy[d] * R)
-    }
+    const pts = bands[b]
+    if (pts.length < 4) continue
     const frac = (b + 0.5) / BANDS
     out.push({
-      k: "p", pts, close: false,
+      k: "p", pts: pts, close: false,
       h: keyHue + frac * 200 * hueDir + routine * 20,
-      s: 82, l: 44 + frac * 14 + bass * 4, lw,
-      a: 0.85 * fade,
+      s: 82, l: 44 + frac * 14 + bass * 4, lw: lw, a: 0.85 * fade,
     })
   }
 
+  const total = seq.length
   if (total > 0) {
-    const d = seq[total - 1]
-    const hx = s.cx + vx[d] * R, hy = s.cy + vy[d] * R
-    const headHue = keyHue + 200 * hueDir + routine * 20
-    out.push({ k: "c", x: hx, y: hy, r: (3 + kick * 4 + bass * 2) * U, h: headHue, s: 90, l: 62, a: 0.9 * fade })
-    out.push({ k: "c", x: hx, y: hy, r: (8 + kick * 8) * U, h: headHue + 20, s: 85, l: 46, a: 0.3 * fade, fill: false, lw: 1.4 * U })
+    let hb = seq[total - 1] * BANDS / len | 0
+    if (hb >= BANDS) hb = BANDS - 1
+    const headHue = keyHue + ((hb + 0.5) / BANDS) * 200 * hueDir + routine * 20
+    out.push({ k: "c", x: headX, y: headY, r: (3 + kick * 4 + bass * 2) * U, h: headHue, s: 90, l: 62, a: 0.9 * fade })
+    out.push({ k: "c", x: headX, y: headY, r: (8 + kick * 8) * U, h: headHue + 20, s: 85, l: 46, a: 0.3 * fade, fill: false, lw: 1.4 * U })
     const tail = Math.min(total, 20)
     const tp = []
     for (let k = total - tail; k < total; k++) {
@@ -203,27 +221,25 @@ while (true) {
     out.push({ k: "p", pts: tp, close: false, h: headHue, s: 88, l: 62, lw: (2.2 + kick * 2) * U, a: 0.9 * fade })
   }
 
-  if (echo && echo.seq.length > 2) {
-    const ep = []
-    for (let k = 0; k < echo.seq.length; k += 2) {
-      const d = echo.seq[k]
-      ep.push(s.cx + echo.ox + vx[d] * R, s.cy + echo.oy + vy[d] * R)
+  if (echo) {
+    for (let b = 0; b < BANDS; b++) {
+      const pts = echo.bands[b]
+      if (pts.length < 4) continue
+      out.push({
+        k: "p", pts: pts, close: false,
+        h: echo.hue + (1 - echo.life) * 60 + b * 8, s: 80, l: 52,
+        lw: (1 + bass * 1.2) * U * 0.8, a: 0.5 * Math.max(0, echo.life),
+      })
     }
-    out.push({
-      k: "p", pts: ep, close: false,
-      h: echo.hue + (1 - echo.life) * 60, s: 80, l: 52,
-      lw: (1 + bass * 1.2) * U * 0.8, a: 0.5 * Math.max(0, echo.life),
-    })
   }
 
   // Hats: glints at the pen head.
   if (A.hatHit && total > 0) {
     const g = glints[glintAt]
     glintAt = (glintAt + 1) % glints.length
-    const d = seq[total - 1]
     const ang = rnd() * TAU
-    g.x = s.cx + vx[d] * R + Math.cos(ang) * 6 * U
-    g.y = s.cy + vy[d] * R + Math.sin(ang) * 6 * U
+    g.x = headX + Math.cos(ang) * 6 * U
+    g.y = headY + Math.sin(ang) * 6 * U
     g.h = keyHue + 150 + rnd() * 80
     g.r = (2.2 + (A.hat || 0) * 2) * U
     g.life = 1
@@ -238,7 +254,7 @@ while (true) {
 
   s = await frame(out, {
     trail: 0.9 - Math.min(0.16, (A.energy || 0) * 0.06) + calm * 0.05,
-    zoom: 1 + kick * 0.01 + (fading ? 0.004 : 0),
+    zoom: 1 + kick * 0.01 + dropAmt * 0.02 + (fading ? 0.004 : 0),
     spin: hueDir * 0.0012 * (1 - calm * 0.7),
     hue: 0.6 + (A.high || 0) * 1.4 + dropAmt * 1.5,
   })
