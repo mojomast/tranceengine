@@ -20,7 +20,9 @@ jobs:
           VM_BUDGET_MS: "8"
         run: bun tools/check-all.mjs
       - name: Evaluate the song mapper
-        run: bun tools/eval-mapper.mjs
+        # Fails if any metric drops more than 0.02 below assets/eval-baseline.json. Improve the mapper, then refresh the
+        # baseline in the same change (bun tools/eval-mapper.mjs --write-baseline assets/eval-baseline.json).
+        run: bun tools/eval-mapper.mjs --baseline assets/eval-baseline.json
       - name: Approved tests (Node)
         # Scene contract tests run the engine checker; shared runners are slower, as with VM_BUDGET_MS above.
         env:
