@@ -69,6 +69,11 @@ bun tools/eval-mapper.mjs --write-baseline baseline.json
 - `--write-baseline FILE` writes `{ "<name>": { "<metric>": value } }` for the songs with truth, to use as a baseline
   later.
 
+CI gates on the committed baseline, `assets/eval-baseline.json` (`--baseline assets/eval-baseline.json`). A mapper change
+that improves a score should refresh the baseline in the same change so the gain is locked in. Current weak spots it
+records: kick F 0.53-0.67 on the three test songs, and trance138's sections and drops (dropHit 0.00, sectionHit 0.86:
+the mapper calls the kick-driven intro a drop and misses both real drops).
+
 To regenerate the test songs (and their truth):
 
 ```sh
