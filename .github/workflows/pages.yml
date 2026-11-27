@@ -1,0 +1,51 @@
+name: Deploy to GitHub Pages
+# Builds the player (dist/index.html, with the engine, scenes and app inlined) and publishes it with the bundled songs.
+# Every asset path in the page is relative, so it works under the /tranceengine/ project subpath.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Build
+        run: bun tools/build.mjs
+      - name: Assemble the site
+        # Allow-list only: the page and the songs. Nothing else from the repo or dist/ is published.
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp dist/index.html _site/
+          cp dist/*.mp3 _site/
+          touch _site/.nojekyll
+          test -s _site/song.mp3
+          if find _site -name '.env*' -o -name '*.key' -o -name '*.pem' | grep -q .; then echo "private file in site" >&2; exit 1; fi
+          ls -la _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

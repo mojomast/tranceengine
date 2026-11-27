@@ -1,8 +1,9 @@
 // name: Plasma lattice
 // Demoscene plasma: the classic sum of sines sampled on a coarse lattice of soft rounded
-// squares, drawn as thick round-joined quads whose hue cycles out from the key. A seeded
-// mulberry32 PRNG fixes every cell's jitter and glint, so a cut, rewind, beat-repeat or
-// replay redraws precisely the same field.
+// squares (about 26x16 on a widescreen, fewer on phones), drawn as thick round-joined
+// quads whose hue cycles out from the key. A seeded mulberry32 PRNG fixes every cell's
+// jitter and glint, so a cut, rewind, beat-repeat or replay redraws precisely the same
+// field; cell constants live in plain parallel arrays and the quad objects are reused.
 // Kick jumps the plasma phase a quarter turn, bass widens the cells, hats add a fine ripple,
 // snare throws a bright ring, build (or a near drop) speeds the time term, drop rotates the
 // palette 180 degrees while dropAmt fades it back; keyHue seeds the hue, level and energy
@@ -20,20 +21,29 @@ const mulberry32 = (a) => {
 }
 let W = 0, H = 0, span = 1, cols = 1, rows = 1, cw = 1, ch = 1
 let cells = [], ring = null, ringU = []
+let CX = [], CY = [], RS = [], RC = [], W0 = [], H0 = [], HJ = [], GL = []
 let sx = [], sy = [], hx = [], hy = []
 const layout = () => {
   W = s.w
   H = s.h
   span = Math.min(W, H)
   const phone = span < 500
-  cols = phone ? 13 : 35
-  rows = phone ? 24 : 21
+  cols = phone ? 13 : 26
+  rows = phone ? 24 : 16
   const m = span * 0.045
   const gw = W - m * 2, gh = H - m * 2
   cw = gw / cols
   ch = gh / rows
   const xs = [], ys = []
   cells = []
+  CX = []
+  CY = []
+  RS = []
+  RC = []
+  W0 = []
+  H0 = []
+  HJ = []
+  GL = []
   for (let i = 0; i < cols; i++) xs.push(s.cx - gw / 2 + cw * (i + 0.5))
   for (let j = 0; j < rows; j++) ys.push(s.cy - gh / 2 + ch * (j + 0.5))
   const invSpan2 = 1 / (span * span)
@@ -45,12 +55,17 @@ const layout = () => {
       const dx = xs[i] - s.cx
       const rr = (dx * dx + dy * dy) * invSpan2
       const r = rand(), f = 0.86 + r * 0.2
+      CX.push(xs[i])
+      CY.push(ys[j])
+      RS.push(Math.sin(rr * 7.5))
+      RC.push(Math.cos(rr * 7.5))
+      W0.push(minCell * 0.22 * f)
+      H0.push(minCell * 0.22 * f)
+      HJ.push(r * 9)
+      GL.push(r > 0.88 ? 1 : 0)
       cells.push({
-        k: "p", fill: false, close: true, x: xs[i], y: ys[j],
-        rs: Math.sin(rr * 7.5), rc: Math.cos(rr * 7.5),
-        w0: minCell * 0.22 * f, h0: minCell * 0.22 * f, lw: minCell * 0.62 * f,
-        hj: r * 9, g: r > 0.88,
-        pts: [0, 0, 0, 0, 0, 0, 0, 0], h: 0, s: 84, l: 0, a: 0,
+        k: "p", fill: false, close: true,
+        pts: [0, 0, 0, 0, 0, 0, 0, 0], h: 0, s: 84, l: 0, a: 0, lw: minCell * 0.62 * f,
       })
     }
   }
@@ -111,25 +126,26 @@ while (true) {
     const syj = sy[j], hyj = hy[j] * hat * 0.6
     for (let i = 0; i < cols; i++) {
       const c = cells[n]
-      n++
-      let v = sx[i] + syj + (c.rs * cp + c.rc * sp) * 0.95 + hx[i] * hyj
+      let v = sx[i] + syj + (RS[n] * cp + RC[n] * sp) * 0.95 + hx[i] * hyj
       let l = lBase + v * lAmp
       if (l < 10) l = 10
       else if (l > 64) l = 64
       let a = aBase * (0.78 + (v < 0 ? -v : v) * 0.14)
-      if (c.g && glintOn) a += hat * 0.08
-      const w = c.w0 * scale, h = c.h0 * scale
-      c.pts[0] = c.x - w
-      c.pts[1] = c.y - h
-      c.pts[2] = c.x + w
-      c.pts[3] = c.y - h
-      c.pts[4] = c.x + w
-      c.pts[5] = c.y + h
-      c.pts[6] = c.x - w
-      c.pts[7] = c.y + h
+      if (GL[n] === 1 && glintOn) a += hat * 0.08
+      const w = W0[n] * scale, h = H0[n] * scale
+      const pts = c.pts, x = CX[n], y = CY[n]
+      pts[0] = x - w
+      pts[1] = y - h
+      pts[2] = x + w
+      pts[3] = y - h
+      pts[4] = x + w
+      pts[5] = y + h
+      pts[6] = x - w
+      pts[7] = y + h
       c.l = l
-      c.h = pal + v * 58 + c.hj
+      c.h = pal + v * 58 + HJ[n]
       c.a = a > 0.82 ? 0.82 : a
+      n++
     }
   }
   if (ringA > 0.02) {
