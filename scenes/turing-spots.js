@@ -1,7 +1,7 @@
 // name: Turing spots
-// Gray-Scott reaction-diffusion after Karl Sims' feed/kill values, on a coarse grid (~41x23 on a
-// widescreen, fewer on phones), drawn as circles sized by the B chemical. A seeded mulberry32 PRNG
-// (Math.imul) picks every
+// Gray-Scott reaction-diffusion after Karl Sims' feed/kill values, on a coarse grid (~28x16 on a
+// widescreen, fewer on phones) stepped once per frame (twice while boiling into a drop), drawn as
+// circles sized by the B chemical. A seeded mulberry32 PRNG (Math.imul) picks every
 // seed point, so a rewind, beat-repeat or replay redraws exactly the same frames; plain preallocated
 // arrays only. kickHit seeds a fresh spot at a PRNG point, snareHit eats a hole that slowly heals,
 // bass slides the feed rate between spots (F=0.030) and stripes/coral (F=0.0545), keyHue sets the
@@ -21,7 +21,7 @@ let GW = 0, GH = 0, W = 0, cw = 1
 let u = [], v = [], u2 = [], v2 = [], cellX = [], cellY = [], pool = []
 const out = []
 const buildGrid = () => {
-  const target = Math.min(s.w, s.h) < 500 ? 820 : 980
+  const target = Math.min(s.w, s.h) < 500 ? 480 : 460
   const aspect = s.w / Math.max(1, s.h)
   GH = Math.max(14, Math.min(60, Math.round(Math.sqrt(target / Math.max(0.2, aspect)))))
   GW = Math.max(14, Math.min(60, Math.round(GH * aspect)))
@@ -116,10 +116,10 @@ while (true) {
   const target = Math.min(1, bass * 0.85 + build * 0.35 + near * 0.3) * (1 - calm * 0.45)
   drive += (target - drive) * Math.min(1, dt * 1.6)
   const F = F_SPOT + drive * (F_STRIPE - F_SPOT)
-  let steps = build > 0.55 || near > 0.6 ? 3 : 2
+  let steps = build > 0.55 || near > 0.6 ? 2 : 1
   if (calm > 0.5) {
     flip = !flip
-    if (flip) steps = 1
+    if (flip) steps = 0
   }
   for (let st = 0; st < steps; st++) step(F)
   if (A.kickHit) {
@@ -139,14 +139,13 @@ while (true) {
   glint *= Math.exp(-dt * 10)
   const boost = 1 + pulse * 0.3 + dropAmt * 0.25
   const sparkling = glint > 0.2
-  out.length = 0
   let j = 0
   for (let y = 0; y < GH; y++) {
     const rowB = (y + 1) * W + 1, rowC = y * GW, glRow = (y * 3) % 9
     for (let x = 0; x < GW; x++) {
       const b = v[rowB + x]
       if (b > thr) {
-        const o = pool[j++]
+        const o = pool[j]
         const bb = b > 1 ? 1 : b
         o.x = cellX[rowC + x]
         o.y = cellY[rowC + x]
@@ -154,12 +153,14 @@ while (true) {
         o.h = hue0 + (bb - 0.15) * 100
         o.l = 40 + bb * 16 + (sparkling && (x + glRow) % 9 === 0 ? glint * 9 : 0)
         o.a = 0.3 + bb * 0.35
-        out.push(o)
+        out[j] = o
+        j++
       }
     }
   }
-  if (out.length > 460) thr = Math.min(0.45, thr + 0.02)
-  else if (out.length < 340) thr = Math.max(0.15, thr - 0.01)
+  out.length = j
+  if (j > 280) thr = Math.min(0.45, thr + 0.02)
+  else if (j < 200) thr = Math.max(0.15, thr - 0.01)
   s = await frame(out, {
     trail: 0.5 + calm * 0.25 + dropAmt * 0.08,
     zoom: 1.003 + pulse * 0.006 - calm * 0.002,
