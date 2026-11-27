@@ -1,11 +1,12 @@
 // name: Slime web
 // Physarum polycephalum sim after Jeff Jones (2010): a few hundred slime agents
 // sense a coarse trail grid ahead-left/ahead/ahead-right, steer, deposit, and the
-// grid diffuses and decays into a glowing web of veins drawn as polylines and dots.
+// grid diffuses and decays into a glowing web of veins drawn as lines and dots.
 // Psychoscript technique: Map/Set graphs - a Map spatial-hashes food sources by grid
-// cell, plain-array flags answer occupancy queries, and a seeded mulberry32 PRNG
-// (fixed sim stream, per-counter kick/snare streams) keeps replays exact. The torus
-// grid has a 3-cell wrapped border (no clamping in hot loops); shapes pooled.
+// cell, plain-array occupancy stamps answer queries, and a seeded mulberry32
+// PRNG (fixed sim stream, per-counter kick/snare streams) keeps replays exact. The torus
+// grid has a 3-cell wrapped border (no clamping in hot loops); shapes pooled, each
+// straight vein run posted as one 2-point line shape.
 // Kick plants food, snare scatters a seeded slice of agents, hats glint on veins,
 // bass opens the sensor angle, keyHue colours the web, build/toDrop pull tight,
 // the drop bursts wide; calm slows it.
@@ -43,15 +44,15 @@ for (let i = 0; i < N; i++) {
   ah[i] = ((a / TAU * 64 + 16 + (rng() - 0.5) * 12) | 0) & 63
 }
 const occFlag = new Array(PCELLS).fill(0)
-const occArr = new Array(560), jctArr = new Array(480), drawJ = new Array(170)
+const occArr = new Array(560), jctArr = new Array(480), drawJ = new Array(80)
 const runA = new Array(150), runB = new Array(150), isoArr = new Array(100)
-let occN = 0, jctN = 0, drawN = 0, runN = 0, isoN = 0
+let occN = 0, jctN = 0, drawN = 0, runN = 0, isoN = 0, occCur = 0
 const mkc = (l, a) => ({ k: "c", x: 0, y: 0, r: 1, h: 0, l, a })
 const jctPool = [], isoPool = [], agentPool = [], runPool = [], foodPool = [], glintPool = []
-for (let i = 0; i < 170; i++) jctPool.push(mkc(58, 0.7))
+for (let i = 0; i < 80; i++) jctPool.push(mkc(58, 0.7))
 for (let i = 0; i < 100; i++) isoPool.push(mkc(45, 0.3))
 for (let i = 0; i < N; i++) agentPool.push(mkc(52, 0.2))
-for (let i = 0; i < 120; i++) runPool.push({ k: "p", pts: [], close: false, h: 0, l: 46, a: 0.45, lw: 1 })
+for (let i = 0; i < 120; i++) runPool.push({ k: "l", x1: 0, y1: 0, x2: 0, y2: 0, h: 0, l: 46, a: 0.45, lw: 1 })
 for (let i = 0; i < 16; i++) foodPool.push(i % 2 ? mkc(60, 0.7) : mkc(40, 0.28))
 for (let i = 0; i < 10; i++) glintPool.push(mkc(62, 0.5))
 const out = [], cellX = new Array(PCELLS).fill(0), cellY = new Array(PCELLS).fill(0)
@@ -70,7 +71,7 @@ const addFood = (px, py, str) => {
     old.s = Math.min(1.6, old.s + str)
     return
   }
-  if (occFlag[key] === 1) str *= 1.5
+  if (occFlag[key] === occCur) str *= 1.5
   const f = { x: xi + 0.5, y: yi + 0.5, s: str, key }
   foodAt.set(key, f)
   foods.push(f)
@@ -79,7 +80,7 @@ const addFood = (px, py, str) => {
     foodAt.delete(dead.key)
   }
 }
-let runStart = -1 // runs of 3+ cells become polylines, else dots
+let runStart = -1 // runs of 3+ cells become line shapes, else dots
 const closeRun = (end) => {
   const len = end - runStart
   if (len >= 3) {
@@ -127,12 +128,12 @@ const step = (saIdx, speed, deposit, dec, diffuse) => {
     tr[ci] = v > 5 ? 5 : v
   }
   if (!diffuse) return
-  for (let j = 0; j < occN; j++) occFlag[occArr[j]] = 0
   occN = 0
   jctN = 0
   runN = 0
   isoN = 0
-  const sc2 = scratch, of = occFlag, OA = occArr, JA = jctArr
+  occCur++
+  const sc2 = scratch, of = occFlag, OA = occArr, JA = jctArr, kd = 0.3333 * dec, oc = occCur
   for (let y = 0; y < GH; y++) {
     const prow = (y + 3) * PGW + 3
     let cl = tr[prow - 1]
@@ -141,10 +142,10 @@ const step = (saIdx, speed, deposit, dec, diffuse) => {
       const c = tr[pi]
       const cr = tr[pi + 1]
       const cu = tr[pi - PGW], cd = tr[pi + PGW]
-      const nv = (c + (cl + cr + cu + cd) * 0.5) * 0.3333 * dec
+      const nv = (c + (cl + cr + cu + cd) * 0.5) * kd
       sc2[pi] = nv
       if (nv > 0.5) {
-        of[pi] = 1
+        of[pi] = oc
         if (occN < 560) {
           OA[occN] = pi
           occN++
@@ -159,9 +160,9 @@ const step = (saIdx, speed, deposit, dec, diffuse) => {
     }
     if (runStart >= 0) closeRun(prow + GW)
   }
-  const stepJ = jctN > 320 ? 2 : 1
+  const stepJ = jctN > 80 ? Math.ceil(jctN / 80) : 1
   let m = 0
-  for (let j = 0; j < jctN && m < 170; j += stepJ) {
+  for (let j = 0; j < jctN && m < 80; j += stepJ) {
     drawJ[m] = jctArr[j]
     m++
   }
@@ -180,6 +181,8 @@ const step = (saIdx, speed, deposit, dec, diffuse) => {
 // Warm-up so the web is grown on the first frame.
 for (let k = 0; k < 150; k++) step(6, 0.85, 0.28, 0.95, true)
 let burst = 0, dphase = 0
+const REACT = { punch: 1.2, slice: 0.4, sparkle: 0.9, shake: 0.7, tint: 0.9 }
+const FX = { trail: 0.84, zoom: 1, spin: 0.0012, hue: 0.6, react: REACT }
 while (true) {
   const A = s.audio, dt = s.dt
   const U = Math.min(s.w, s.h) / 800, Ur = U < 0.55 ? 0.55 : U
@@ -213,9 +216,10 @@ while (true) {
     g.on = true
     g.x = (ci % PGW) - 3, g.y = ((ci / PGW) | 0) - 3, g.life = 1
   }
+  const fdec = Math.exp(-dt * 0.45)
   for (let j = foods.length - 1; j >= 0; j--) {
     const f = foods[j]
-    f.s *= Math.exp(-dt * 0.45)
+    f.s *= fdec
     if (f.s < 0.03) {
       foods.splice(j, 1)
       foodAt.delete(f.key)
@@ -252,22 +256,16 @@ while (true) {
   const tr = trail, runHue = hue0 + 24
   for (let r = 0; r < runN; r++) {
     const o = runPool[r]
-    const pts = o.pts
     if (diffuse || moved) {
-      const i0 = runA[r], len = runB[r]
-      if (pts.length !== len * 2) pts.length = len * 2
-      const y0 = cellY[i0]
-      for (let k = 0, q = i0; k < len; k++, q++) {
-        pts[k * 2] = cellX[q]
-        pts[k * 2 + 1] = y0
-      }
-      o.a = 0.34 + (len > 8 ? 0.18 : len * 0.02), o.lw = 2 * Ur
+      const i0 = runA[r], y0 = cellY[i0]
+      o.x1 = cellX[i0], o.y1 = y0, o.x2 = cellX[i0 + runB[r] - 1], o.y2 = y0
+      o.a = 0.34 + (runB[r] > 8 ? 0.18 : runB[r] * 0.02), o.lw = 2 * Ur
     }
     o.h = runHue
     out[oi] = o
     oi++
   }
-  const rK = 3.1 * Ur * (1 + kick * 0.3), hK = hue0 + 28, geo = diffuse || moved
+  const rK = 4.5 * Ur * (1 + kick * 0.3), hK = hue0 + 28, geo = diffuse || moved
   const JP = jctPool, DJ = drawJ
   for (let j = 0; j < drawN; j++) {
     const i = DJ[j]
@@ -328,11 +326,7 @@ while (true) {
     oi++
   }
   out.length = oi
-  s = await frame(out, {
-    trail: 0.84 + calm * 0.08,
-    zoom: 1.003 + kick * 0.012 + dropAmt * 0.01 - tight * 0.005,
-    spin: 0.0012,
-    hue: 0.6,
-    react: { punch: 1.2, slice: 0.4, sparkle: 0.9, shake: 0.7, tint: 0.9 },
-  })
+  FX.trail = 0.84 + calm * 0.08
+  FX.zoom = 1.003 + kick * 0.012 + dropAmt * 0.01 - tight * 0.005
+  s = await frame(out, FX)
 }
