@@ -7,6 +7,8 @@
 Thirty-three generative scenes, each a small program sealed inside its own [Psychoscript](https://psychoscript.com/) VM,
 cut together on the beat by a director that has read the whole song first.
 
+**[▶ Play it live in your browser](https://mojomast.github.io/tranceengine/)**
+
 <img src="docs/screenshots/hero-600-cell.jpg" alt="The 600-cell, a four-dimensional polytope with 120 vertices and 720 edges, glowing magenta and cyan" width="100%">
 
 </div>
@@ -58,7 +60,7 @@ structure); twenty-four **flourishes** punctuate it as one-bar inserts and trans
 | **Summoning circle** | **Astral city** | **Eclipse temple** |
 
 <details>
-<summary>All 33 scenes</summary>
+<summary>All 45 scenes</summary>
 
 | Scene | Tier | Phases |
 |---|---|---|
@@ -72,6 +74,12 @@ structure); twenty-four **flourishes** punctuate it as one-bar inserts and trans
 | Strange attractor | feature | I. Thomas · II. Aizawa · III. Lorenz · IV. Halvorsen |
 | Polytope chapel | feature | I. Tesseract · II. Compound · III. Cathedral · IV. 600-cell |
 | Kinetic type, Synthwave horizon, Solar mandala, Aurora ribbons, Neon ocean, Starfield warp, Beat fireworks, Unzipping helix, Firefly swarm, Sacred geometry, Spiral galaxy, Polygon tunnel, Glyph rain, Moiré rings, Lightning storm, Spectrum halo, Crystal shards, Neon vines, Spectrum terrain, Melting grid, Orbit garden, Lava lamp, Lissajous bloom, Hypno spiral | flourish | one |
+
+**Bee-built scenes** (12, from the catalog in [docs/research-scenes.md](docs/research-scenes.md)):
+
+| Scene | Tier | Phases |
+|---|---|---|
+| Truchet weave, Oscilloscope XY, Sunflower spiral, Laser fan, Sidechain bloom, Arp constellation, Life pulse, L-system garden, Rule 30 loom, Coroutine dancers, Copper bars, Signal glitch | flourish | one |
 
 Several flourishes were designed by a swarm of Claude Haiku agents working from [the scene brief](docs/scene-api.md);
 the features were written by Claude.
