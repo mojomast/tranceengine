@@ -1,13 +1,14 @@
 // name: Sunflower spiral
 // Vogel phyllotaxis as math art: seed i sits at i*137.508 degrees on a c*sqrt(i) radius, so
 // Fibonacci arms emerge from a head of florets. The technique is a seeded mulberry32 PRNG built
-// on Math.imul, so rewinds, beat repeats and replays redraw identical sparkles. Bass nudges the
+// on Math.imul, so rewinds, beat repeats and replays redraw identical sparkles; the 280 seeds
+// draw from a reused pool of circle objects. Bass nudges the
 // divergence angle a few tenths of a degree and the arms re-form; kicks send a radial ripple;
 // hats sparkle random seeds; keyHue paints by index; the drop sweeps the angle through rational
 // approximants; calm slows, thins and lengthens the trail; a nearby build tightens the spiral.
 let s = await frame([])
 const GOLD = 137.508 * Math.PI / 180
-const N = 520, LEVELS = 9, MID = 4
+const N = 280, LEVELS = 9, MID = 4
 const rad = [], waveS = [], waveC = []
 const cosT = [], sinT = []
 for (let i = 0; i < N; i++) {
@@ -36,9 +37,11 @@ const rnd = () => {
   z ^= z + Math.imul(z ^ (z >>> 7), z | 61)
   return ((z ^ (z >>> 14)) >>> 0) / 4294967296
 }
+const pool = [], out = []
+for (let i = 0; i < N; i++) pool.push({ k: "c", x: 0, y: 0, r: 1, h: 200, s: 78, l: 50, a: 0.6 })
 let rot = 0, ripT = -10, sweep = 0, tilt = 0
 while (true) {
-  const A = s.audio, out = []
+  const A = s.audio
   const span = Math.min(s.w, s.h), U = span / 800
   const bass = A.bass || 0, kick = A.kick || 0, hat = A.hat || 0
   const calm = A.calm || 0, drops = A.dropAmt || 0
@@ -66,19 +69,27 @@ while (true) {
   const R = span * (0.34 + kick * 0.045 + drops * 0.05 - calm * 0.08 - build * 0.015)
   const step = calm > 0.55 ? 2 : 1
   const gd = Math.exp(-s.dt * 5)
-  const size = (2.1 + bass * 1.6 + hat * 1.2 + drops * 1.4) * U
+  const size = (2.85 + bass * 1.6 + hat * 1.2 + drops * 1.4) * U
+  const sat = 78 - calm * 20
+  const cx = s.cx, cy = s.cy
+  let nOut = 0
   for (let i = 0; i < N; i += step) {
     let g = glow[i]
     if (g > 0.001) { g *= gd; glow[i] = g }
     else if (g !== 0) glow[i] = 0
     const rr = R * rad[i] + amp * 11 * U * (waveS[i] * cosP - waveC[i] * sinP)
     const bx = cs[i], by = sn[i]
-    const x = s.cx + rr * (bx * cosR - by * sinR)
-    const y = s.cy + rr * (bx * sinR + by * cosR)
-    out.push({ k: "c", x, y, r: size * (0.55 + rad[i] * 0.6) * (1 + g * 0.9),
-      h: hue0 + i * 0.19 + g * 90, s: 78 - calm * 20, l: 48 + bass * 10 + g * 7,
-      a: 0.62 + hat * 0.12 + g * 0.2 })
+    const o = pool[i]
+    o.x = cx + rr * (bx * cosR - by * sinR)
+    o.y = cy + rr * (bx * sinR + by * cosR)
+    o.r = size * (0.55 + rad[i] * 0.6) * (1 + g * 0.9)
+    o.h = hue0 + i * 0.19 + g * 90
+    o.s = sat
+    o.l = 48 + bass * 10 + g * 7
+    o.a = 0.62 + hat * 0.12 + g * 0.2
+    out[nOut++] = o
   }
+  out.length = nOut
   s = await frame(out, {
     trail: 0.86 + calm * 0.1 + drops * 0.02,
     zoom: 1.002 + kick * 0.012 + drops * 0.008,
