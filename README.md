@@ -7,6 +7,8 @@
 Thirty-three generative scenes, each a small program sealed inside its own [Psychoscript](https://psychoscript.com/) VM,
 cut together on the beat by a director that has read the whole song first.
 
+**[▶ Play it live in your browser](https://mojomast.github.io/tranceengine/)**
+
 <img src="docs/screenshots/hero-600-cell.jpg" alt="The 600-cell, a four-dimensional polytope with 120 vertices and 720 edges, glowing magenta and cyan" width="100%">
 
 </div>
