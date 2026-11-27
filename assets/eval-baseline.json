@@ -1,0 +1,38 @@
+{
+  "breakneck": {
+    "tempoOk": 1.0,
+    "downbeatHit": 1.0,
+    "beatF": 0.98,
+    "kickF": 0.59,
+    "kickP": 0.62,
+    "kickR": 0.57,
+    "snareF": 0.85,
+    "hatF": 0.6,
+    "sectionHit": 1.0,
+    "dropHit": 1.0
+  },
+  "slow-burn": {
+    "tempoOk": 1.0,
+    "downbeatHit": 1.0,
+    "beatF": 0.99,
+    "kickF": 0.67,
+    "kickP": 0.52,
+    "kickR": 0.92,
+    "snareF": 0.73,
+    "hatF": 0.65,
+    "sectionHit": 1.0,
+    "dropHit": 1.0
+  },
+  "trance138": {
+    "tempoOk": 1.0,
+    "downbeatHit": 0.79,
+    "beatF": 0.87,
+    "kickF": 0.53,
+    "kickP": 0.55,
+    "kickR": 0.52,
+    "snareF": 0.82,
+    "hatF": 0.73,
+    "sectionHit": 0.86,
+    "dropHit": 0.0
+  }
+}
