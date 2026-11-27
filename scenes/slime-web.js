@@ -11,7 +11,7 @@
 // build/toDrop pull it tight, the drop bursts it wide; calm slows it.
 let s = await frame([])
 const TAU = Math.PI * 2
-const GW = 44, GH = 26, CELLS = GW * GH
+const GW = 32, GH = 20, CELLS = GW * GH
 const N = 300
 const mulberry32 = (seed) => {
   let a = seed >>> 0
@@ -40,20 +40,20 @@ for (let i = 0; i < N; i++) {
   ah[i] = ((a / TAU * 64 + 16 + (rng() - 0.5) * 12) | 0) & 63
 }
 const occ = new Set()
-const occArr = new Array(640)
+const occArr = new Array(560)
 const occDeg = new Array(640)
 let occN = 0
 const runA = new Array(150), runB = new Array(150)
-const isoArr = new Array(130)
+const isoArr = new Array(100)
 let runN = 0, isoN = 0
 // Shape pools: the same objects are mutated and re-sent every frame (the worker
 // clones them on the way out), so a dense frame costs writes, not allocations.
 const dotPool = []
-for (let i = 0; i < 320; i++) dotPool.push({ k: "c", x: 0, y: 0, r: 1, h: 0, l: 50, a: 0.5 })
+for (let i = 0; i < 280; i++) dotPool.push({ k: "c", x: 0, y: 0, r: 1, h: 0, l: 50, a: 0.5 })
 const agentPool = []
 for (let i = 0; i < N; i++) agentPool.push({ k: "c", x: 0, y: 0, r: 1, h: 0, l: 52, a: 0.2 })
 const runPool = []
-for (let i = 0; i < 150; i++) runPool.push({ k: "p", pts: [], close: false, h: 0, l: 46, a: 0.45, lw: 1 })
+for (let i = 0; i < 120; i++) runPool.push({ k: "p", pts: [], close: false, h: 0, l: 46, a: 0.45, lw: 1 })
 const foodPool = [], glintPool = []
 for (let i = 0; i < 16; i++) foodPool.push({ k: "c", x: 0, y: 0, r: 1, h: 0, l: 50, a: 0.5 })
 for (let i = 0; i < 10; i++) glintPool.push({ k: "c", x: 0, y: 0, r: 1, h: 0, l: 62, a: 0.5 })
@@ -89,22 +89,22 @@ let runStart = -1
 const closeRun = (end) => {
   const len = end - runStart
   if (len >= 3) {
-    if (runN < 150) {
+      if (runN < 120) {
       runA[runN] = runStart
       runB[runN] = len
       runN++
     }
   } else {
-    for (let q = runStart; q < end && isoN < 130; q++) {
+    for (let q = runStart; q < end && isoN < 100; q++) {
       isoArr[isoN] = q
       isoN++
     }
   }
   runStart = -1
 }
-// One sim step: sense, steer, move, deposit; every second step also diffuses +
-// decays the grid and rebuilds occupancy and vein runs in the same pass (dec
-// then covers two steps). Agents turn by 5 table steps, about 0.5 rad.
+// One sim step: sense, steer, move, deposit; every third frame also diffuses +
+// decays the grid and rebuilds occupancy and vein runs in the same pass (dec is
+// steepened to cover three frames). Agents turn by 5 table steps, about 0.5 rad.
 const step = (saIdx, speed, deposit, dec, diffuse) => {
   const so = 2.3
   for (let i = 0; i < N; i++) {
@@ -167,7 +167,7 @@ const step = (saIdx, speed, deposit, dec, diffuse) => {
       scratch[i] = nv
       if (nv > 0.5) {
         occ.add(i)
-        if (occN < 640) {
+        if (occN < 560) {
           occArr[occN] = i
           occDeg[occN] = (cl > 0.5 ? 1 : 0) + (cr > 0.5 ? 1 : 0) + (cu > 0.5 ? 1 : 0) + (cd > 0.5 ? 1 : 0)
           occN++
@@ -183,12 +183,12 @@ const step = (saIdx, speed, deposit, dec, diffuse) => {
 }
 // Warm-up so the web is already grown on the first frame of a mid-song insert.
 for (let k = 0; k < 150; k++) step(6, 0.85, 0.28, 0.95, true)
-let burst = 0, diffTick = false, runOx = -1, runOy = -1
+let burst = 0, dphase = 0, runOx = -1, runOy = -1
 while (true) {
   const A = s.audio, dt = s.dt
   const U = Math.min(s.w, s.h) / 800
   const Ur = U < 0.55 ? 0.55 : U
-  const cell = 16 * U
+  const cell = 20 * Ur
   const ox = s.cx - GW * cell / 2, oy = s.cy - GH * cell / 2
   const calm = A.calm || 0
   const bass = A.bass || 0
@@ -241,16 +241,17 @@ while (true) {
   const sa = (0.4 + bass * 0.55) * (1 - tight * 0.3)
   const saIdx = 2 + Math.round(sa * 8)
   const speed = (0.55 + energy * 0.45 + dropAmt * 0.5 + tight * 0.3 + burst * 0.5) * (1 - calm * 0.55)
-  diffTick = !diffTick
+  dphase = (dphase + 1) % 3
+  const diffuse = dphase === 0
   const dec = 0.955 + calm * 0.03
-  step(saIdx, speed, 0.26 + dropAmt * 0.18, diffTick ? dec * dec : dec, diffTick)
+  step(saIdx, speed, 0.26 + dropAmt * 0.18, diffuse ? dec * Math.sqrt(dec) : dec, diffuse)
   burst *= Math.exp(-dt * 3)
   const out = []
   let oi = 0
   for (let r = 0; r < runN; r++) {
     const o = runPool[r]
     const pts = o.pts
-    if (diffTick || runOx !== ox || runOy !== oy) {
+    if (diffuse || runOx !== ox || runOy !== oy) {
       const i0 = runA[r], len2 = runB[r] * 2
       if (pts.length !== len2) pts.length = len2
       const y0 = oy + (((i0 / GW) | 0) + 0.5) * cell
@@ -269,7 +270,7 @@ while (true) {
   runOy = oy
   let di = 0
   const thinJ = occN > 380
-  for (let j = 0; j < occN && di < 320; j++) {
+  for (let j = 0; j < occN && di < 280; j++) {
     if (occDeg[j] < 3 || (thinJ && (j & 1) === 1)) continue
     const i = occArr[j]
     const v0 = trail[i]
@@ -285,7 +286,7 @@ while (true) {
     out[oi] = o
     oi++
   }
-  for (let q = 0; q < isoN && di < 320; q++) {
+  for (let q = 0; q < isoN && di < 280; q++) {
     const i = isoArr[q]
     const v0 = trail[i]
     const v = v0 > 1.8 ? 1.8 : v0
@@ -303,8 +304,8 @@ while (true) {
   const ahue = hue0 + 160
   const ar = 1.1 * Ur
   const aa = 0.18 + hat * 0.14 + dropAmt * 0.1
-  const par = s.frame & 1
-  for (let i = par; i < N; i += 2) {
+  const par = s.frame % 3
+  for (let i = par; i < N; i += 3) {
     const o = agentPool[i]
     o.x = ox + ax[i] * cell
     o.y = oy + ay[i] * cell
